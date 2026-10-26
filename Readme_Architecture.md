@@ -87,6 +87,9 @@ scrcpy 3.3.4 控制協定編碼（big-endian），與 Mac 版 Swift 逐位元組
 ### DeviceStatus.cs
 對應 `DeviceStatus.swift`：一次 shell 取得電池（狀態碼區分充電中／已插電未充電）、預設網路（Wi-Fi 或 MOBILE[LTE]→4G/5G）、telephony.registry 的每個卡槽（電信、世代、dBm、三星 SignalBarInfo 格數、緊急通話、無線電關閉）、Wi-Fi RSSI／SSID／IP、電池循環與容量、生產日期、旋轉設定。`DeviceStatusStore` 每 10 秒更新所有在線裝置。
 
+### PhoneData.cs
+對應 `PhoneData.swift`＋`PhoneDataStore.swift`：`PhoneSMS`／`PhoneCall`／`PhoneNotification`／`PhoneDataBundle`（JSON 存 `%LOCALAPPDATA%\PhoneCentre\Data\<裝置鍵>\data.json`，先寫暫存檔再取代，不放快取目錄所以不會被容量清理刪掉）。`PhoneDataParser`：`Rows` 解析 `content query` 輸出（每筆以「Row: N 」開頭，值可能含逗號與換行，所以依投影欄位的固定順序切割，最後一欄可含任何內容）；`Notifications` 解析 `dumpsys notification --noredact` 的「Notification List」區段（`NotificationRecord(` 取 pkg／key／flags，0x2＝常駐；extras 的 title／text／bigText，值含換行時累積到行尾的「)」；找不到區段回傳 null，避免把所有通知誤判成已清除）。`PhoneDataStore`：每 15 秒一次，通知每次都同步、簡訊與通話記錄每分鐘一次，只抓比已保存最新一筆更新的；通知對照手機目前的（不見的標 `ClearedAt`、新的加入、同一個 key 內容有變就原地更新）；`Prune` 依保存天數刪除（還在手機上的通知不刪）。
+
 ### ThumbnailLoader.cs
 對應 `ThumbnailLoader`：格子出現才排隊，80 ms 內的請求合併成一批（24 張）交給手機端 `thumbs 256`，只傳小圖不傳原檔；結果存到 `Cache\<裝置鍵>\thumbs`（鍵含路徑、大小、修改時間與縮圖版本 v2）。判斷佇列是否空與清除執行旗標要在 UI 執行緒一起做。
 
@@ -110,6 +113,14 @@ scrcpy 3.3.4 控制協定編碼（big-endian），與 Mac 版 Swift 逐位元組
 
 ### PhotosPage.cs
 對應 `CameraRollView.swift`：上方相簿下拉（所有照片＝DCIM 底下遞迴、相機、DCIM 與 Pictures 的各資料夾）、全部／照片／影片、項目數、已選取數與匯出／刪除、縮放滑桿（80–280，`UniformGridLayout` 的格子大小）、重新整理。格子是 `PhotoCell`（縮圖、影片的播放標記、選取框與勾勾），用 `ItemsRepeater`＋`PhotoCellFactory`（回收格子）虛擬化；`ElementPrepared`／`ElementClearing` 對應 Mac 版的 onAppear／onDisappear，通知 `ThumbnailLoader` 該排隊或取消。選取：Ctrl 點選加入或取消、Shift 選取範圍、Ctrl＋A 全選、Delete 刪除；右鍵（打開、匯出、刪除）；拖檔進來匯入（「所有照片」匯入到 DCIM/Camera）；拖出到檔案總管用 `RemoteDrag`。匯出遇到同名檔案會加編號。雙擊開 `MediaViewerWindow`（照片顯示原圖、影片用 `MediaPlayerElement`，左右鍵切換，Esc 關閉）。
+
+### PhoneDataPage.cs
+對應 `PhoneDataView.swift`＋`PhoneSMSView.swift`：通知／簡訊／通話記錄三個分頁共用一個類別（`DataKind` 區分）。沒開啟收集時顯示說明卡片與「開啟」按鈕（預設關閉，因為是個人隱私資料）。標題列：通知有「現在／所有」與「顯示常駐通知」；右邊是保存期限、搜尋（空間不夠會縮）、立即更新（更新中在按鈕原位轉圈）、更多（停止收集、刪除已保存的資料）。
+- 通知：一塊面板，列與列之間有分隔線；App 圖示與名稱來自該裝置的 `AppCatalog`；已清除的標示清除時間；點一則會詢問要不要打開該 App。
+- 通話記錄：撥入／撥出／未接（紅色）圖示、號碼與種類、時間與時長。
+- 簡訊：左邊依號碼分組的對話列表（最後一則兩行預覽、選中的用強調色），右邊是氣泡對話（收到灰色靠左、寄出綠色靠右，間隔超過 1 小時插入日期分隔，切換對話時捲到最新一則）。
+- 裝置鍵優先用 ro.serialno，所以手機資訊還沒讀到之前頁面只轉圈圈、`SyncAsync` 也直接返回，否則資料會存到用連線位址當鍵的另一個目錄。資料沒變就不重畫（重畫會洗掉捲動位置）。
+- 測試參數：`--enable-phonedata` 開啟收集、`--no-sync` 只顯示已保存的資料（用假資料截圖時不會又把真實資料收進來）。
 
 ### AdbSetupView.cs
 找不到 adb 時的一鍵下載安裝。
@@ -144,7 +155,7 @@ scrcpy 3.3.4 控制協定編碼（big-endian），與 Mac 版 Swift 逐位元組
 - `RemoteDrag.cs`：把手機檔案拖出到檔案總管（`SetDataProvider` 延遲提供，放開才 `adb pull`），檔案頁與相機膠卷共用。
 - `Shell.cs`：非同步執行外部程式（stdout／stderr 邊跑邊讀、逾時強制結束）、單引號跳脫。
 - `Assets.cs`：內嵌資源解出；`CacheDir.cs`：快取目錄；`Log.cs`：`%LOCALAPPDATA%\PhoneCentre\log.txt`；`DropHandler.cs`：拖放處理。
-- `AppSettings.cs`：`settings.json`（目前只有 KeepAlive、自訂 adb 路徑、各裝置的喜好項目）。
+- `AppSettings.cs`：`settings.json`（KeepAlive、自訂 adb 路徑、啟動台開啟方式、各裝置的喜好項目、是否收集簡訊／通知／通話記錄與各自的保存天數）。
 
 ## 已知限制
 - x64 版用 Windows 內建解碼器沒有畫面（見 H264Decoder），所以走 FFmpeg 軟體解碼；舊的低壓雙核 CPU（例如 i5-4278U）可以跑，但延遲與 CPU 使用率還沒量測。

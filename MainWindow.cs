@@ -227,6 +227,9 @@ public sealed class MainWindow : Window
             DeviceTab.Launchpad => new LaunchpadPage(d.Id),
             DeviceTab.Files => new FilesPage(d.Id),
             DeviceTab.Photos => new PhotosPage(d.Id),
+            DeviceTab.Notifications => new PhoneDataPage(d.Id, DataKind.Notifications),
+            DeviceTab.Sms => new PhoneDataPage(d.Id, DataKind.Sms),
+            DeviceTab.Calls => new PhoneDataPage(d.Id, DataKind.Calls),
             _ => Message(Tabs.First(t => t.Tab == _tab).Title, "這個分頁尚未移植到 Windows 版。"),
         };
     }

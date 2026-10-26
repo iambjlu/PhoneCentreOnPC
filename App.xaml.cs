@@ -25,8 +25,11 @@ public partial class App : Application
         MainWindow.Activate();
         DeviceManager.Shared.Start();
         DeviceStatusStore.Shared.Start();
+        PhoneDataStore.Shared.Start();
 
-        // 測試用：--tab=launchpad 等
+        if (Environment.GetCommandLineArgs().Contains("--no-sync")) PhoneDataStore.TestNoSync = true;
+        // 測試用：--enable-phonedata 開啟簡訊／通知／通話記錄收集；--tab=launchpad 等
+        if (Environment.GetCommandLineArgs().Contains("--enable-phonedata")) Settings.AppSettings.PhoneDataEnabled = true;
         var tabArg = Environment.GetCommandLineArgs().FirstOrDefault(a => a.StartsWith("--tab="))?["--tab=".Length..];
         if (tabArg is not null && Enum.TryParse<DeviceTab>(tabArg, true, out var tab)) MainWindow.SelectTab(tab);
 
