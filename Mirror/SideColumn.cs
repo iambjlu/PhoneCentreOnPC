@@ -60,7 +60,6 @@ internal sealed class SideColumn : UserControl
 
     private void Build()
     {
-        Log.Write("SC:build");
         _appsSig = ""; _navSig = "";
         Background = Ui.Ui.Hex(0x59000000);
         if (_horizontal) BuildHorizontal(); else BuildVertical();
@@ -182,7 +181,6 @@ internal sealed class SideColumn : UserControl
 
     public void Update()
     {
-        Log.Write("SC:update");
         _indicator.Set(_m.StatusLoaded ? _m.Status : null);
         UpdateApps();
         UpdateNav();

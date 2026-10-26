@@ -38,13 +38,10 @@ public sealed class MirrorWindow : Window
 
     public MirrorWindow(MirrorModel model, (double X, double Y)? topLeft = null)
     {
-        Log.Write("MW:ctor start");
         Model = model;
         Title = model.Title;
         PhoneCentre.Support.WindowIcon.Apply(this);
         SystemBackdrop = new MicaBackdrop();
-
-        Log.Write("MW:new MirrorView");
         _view = new MirrorView(model, this);
         if (model.IsVirtualDisplay)
         {
@@ -52,25 +49,18 @@ public sealed class MirrorWindow : Window
             // 中鍵／Ctrl＋Backspace：桌面模式送 Home 到該桌面；單一 App 視窗不要因為誤按中鍵就關掉視窗
             if (model.DesktopMode) _view.OnHome = model.NavHome;
         }
-        Log.Write("MW:new SideColumn");
         _rail = new SideColumn(model, this);
-
-        Log.Write("MW:layout");
         _videoArea.Children.Add(_view);
         _videoArea.Children.Add(_overlays);
         _videoArea.Children.Add(_flash);
         Content = _root;
         LayoutRoot(false);
-
-        Log.Write("MW:subclass");
         _sub = new WindowSubclass(this)
         {
             MinSize = () => MinFrame(IsLandscape()),
             KeepAspect = () => !Model.IsVirtualDisplay && Model.FrameSize.W > 0 && Model.FrameSize.H > 0 ? (Model.FrameSize.W / (double)Model.FrameSize.H, _compact ? 0 : MirrorLayout.RailWidth, _compact ? MirrorLayout.BottomBarHeight : MirrorLayout.ToolbarHeight) : null,
         };
         _sub.ResizeEnded += OnResizeEnded;
-
-        Log.Write("MW:hooks");
         model.Changed += Refresh;
         model.OnFrameSize = Fit;
         model.OnRotateWindow = RotateWindow;
@@ -87,11 +77,8 @@ public sealed class MirrorWindow : Window
         AppWindow.Changed += (_, e) => { if (e.DidSizeChange) OnSizeChanged(); };
 
         // 還原上次的視窗大小（獨立視窗常見）
-        Log.Write("MW:restore");
         RestoreFrame(topLeft);
-        Log.Write("MW:refresh");
         Refresh();
-        Log.Write("MW:ctor done");
     }
 
     private bool IsForeground => GetForegroundWindow() == WinRT.Interop.WindowNative.GetWindowHandle(this);
@@ -276,12 +263,10 @@ public sealed class MirrorWindow : Window
     {
         Model.BackingScale = Scale;
         if (_savedVideo is { } sv && sv.W > 100 && sv.H > 100) { _userResized = true; Model.PresetDisplay(sv.W, sv.H); }
-        Log.Write("MW:activate");
         base.Activate();
         AppWindow.Show();
-        Log.Write("MW:activated");
         _view.Focus(FocusState.Programmatic);
-        if (!_started) { _started = true; Log.Write("MW:model start"); Model.Start(); Log.Write("MW:model started"); }
+        if (!_started) { _started = true; Model.Start(); }
     }
 
     private bool _started;

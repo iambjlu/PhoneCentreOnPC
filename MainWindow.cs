@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml.Shapes;
 using PhoneCentre.Adb;
 using PhoneCentre.Pages;
 using PhoneCentre.Services;
+using PhoneCentre.Settings;
 using PhoneCentre.Support;
 using PhoneCentre.Ui;
 using Windows.Graphics;
@@ -85,7 +86,8 @@ public sealed class MainWindow : Window
 
         var add = new Button { Content = new MIcon("add", 18), Padding = new Thickness(6), Background = null, BorderThickness = new Thickness(0) };
         ToolTipService.SetToolTip(add, "加入無線裝置");
-        add.Click += async (_, _) => await ShowAddDialog();
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(add, "加入裝置");
+        add.Click += async (_, _) => await AddDeviceDialog.ShowAsync(Content.XamlRoot);
         var head = new Grid { Padding = new Thickness(18, 12, 10, 6) };
         head.Children.Add(Ui.Ui.Text("裝置", 12, true, true));
         add.HorizontalAlignment = HorizontalAlignment.Right;
@@ -99,9 +101,13 @@ public sealed class MainWindow : Window
         var bar = new StackPanel { Spacing = 2, Padding = new Thickness(12, 10, 12, 10) };
         var gear = new Button { Content = new MIcon("settings", 16), Padding = new Thickness(6), Background = null, BorderThickness = new Thickness(0), HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
         ToolTipService.SetToolTip(gear, "設定（Ctrl+,）");
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(gear, "設定");
         gear.Click += (_, _) => WindowManager.OpenSettings();
         var statusRow = new Grid();
         statusRow.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, VerticalAlignment = VerticalAlignment.Center, Children = { _serverDot, _serverText } });
+        var keepIcon = new MIcon("sync", 14) { Foreground = Ui.Ui.Secondary, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 0, 34, 0), Visibility = Settings.AppSettings.KeepAlive ? Visibility.Visible : Visibility.Collapsed };
+        ToolTipService.SetToolTip(keepIcon, "自動維持連線已開啟");
+        statusRow.Children.Add(keepIcon);
         statusRow.Children.Add(gear);
         bar.Children.Add(statusRow);
         bar.Children.Add(_eventText);
@@ -160,7 +166,9 @@ public sealed class MainWindow : Window
     {
         _deviceList.Children.Clear();
         foreach (var d in LocalDevices) _deviceList.Children.Add(DeviceRow(d, d.Id == _selection));
-        if (!LocalDevices.Any())
+        var offline = OfflineSaved().ToList();
+        foreach (var ep in offline) _deviceList.Children.Add(SavedRow(ep));
+        if (!LocalDevices.Any() && offline.Count == 0)
         {
             var hint = Ui.Ui.Text("插上已開啟 USB 偵錯的手機，或按 + 加入無線裝置", 12, true);
             hint.TextWrapping = TextWrapping.Wrap; hint.Margin = new Thickness(10, 6, 10, 0);
@@ -175,6 +183,49 @@ public sealed class MainWindow : Window
         };
         _eventText.Text = _dm.LastEvent;
         _eventText.Visibility = _dm.LastEvent.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    /// <summary>記住、但目前離線的無線裝置（已經用別的方式連上的不列）</summary>
+    private IEnumerable<SavedEndpoint> OfflineSaved()
+    {
+        var online = _dm.Devices.Where(d => d.IsOnline).Select(d => d.Serial).ToHashSet();
+        var onlineSn = _dm.Devices.Where(d => d.IsOnline && d.Info is not null).Select(d => d.Info!.SerialNo).ToHashSet();
+        return Settings.AppSettings.Data.SavedEndpoints.Where(e => !online.Contains(e.Address) && !(e.SerialNo is { } sn && onlineSn.Contains(sn)));
+    }
+
+    /// <summary>清單上記住、但沒連上的無線裝置：右邊一鍵連線；右鍵可連線、切換自動重新連線、從清單移除</summary>
+    private FrameworkElement SavedRow(SavedEndpoint ep)
+    {
+        string state = _dm.Reconnecting.Contains(ep.Address) ? "連線中…" : _dm.Paused.Contains(ep.Address) ? "已中斷連線" : ep.Auto ? "離線" : "離線（不自動連線）";
+        var texts = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        texts.Children.Add(Ui.Ui.Text(ep.Name ?? ep.Address, 14));
+        texts.Children.Add(Ui.Ui.Text(state, 11, true));
+        texts.Children.Add(Ui.Ui.Text(ep.Address, 11, true));
+        FrameworkElement right;
+        if (_dm.Reconnecting.Contains(ep.Address)) right = new ProgressRing { Width = 14, Height = 14, IsActive = true };
+        else
+        {
+            var b = new Button { Content = new MIcon("refresh", 16) { Foreground = Ui.Ui.Secondary }, Background = null, BorderThickness = new Thickness(0), Padding = new Thickness(4) };
+            ToolTipService.SetToolTip(b, "連線");
+            b.Click += async (_, _) => await _dm.ReconnectSavedAsync(ep);
+            right = b;
+        }
+        right.VerticalAlignment = VerticalAlignment.Center;
+        var grid = new Grid { ColumnSpacing = 10 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(22) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.Children.Add(new MIcon("wifi_off", 20) { Foreground = Ui.Ui.Secondary, VerticalAlignment = VerticalAlignment.Center });
+        Grid.SetColumn(texts, 1); grid.Children.Add(texts);
+        Grid.SetColumn(right, 2); grid.Children.Add(right);
+        var row = new Border { Child = grid, Padding = new Thickness(10, 8, 10, 8), CornerRadius = new CornerRadius(8), Background = Ui.Ui.Hex(0x01000000) };
+        var menu = new MenuFlyout();
+        var conn = new MenuFlyoutItem { Text = "連線" }; conn.Click += async (_, _) => await _dm.ReconnectSavedAsync(ep);
+        var auto = new ToggleMenuFlyoutItem { Text = "自動重新連線", IsChecked = ep.Auto }; auto.Click += (_, _) => _dm.SetAutoReconnect(ep.Address, auto.IsChecked);
+        var forget = new MenuFlyoutItem { Text = "從清單移除" }; forget.Click += (_, _) => _dm.Forget(ep);
+        menu.Items.Add(conn); menu.Items.Add(auto); menu.Items.Add(new MenuFlyoutSeparator()); menu.Items.Add(forget);
+        row.ContextFlyout = menu;
+        return row;
     }
 
     private FrameworkElement DeviceRow(Device d, bool selected)
@@ -212,14 +263,27 @@ public sealed class MainWindow : Window
             Background = selected ? Ui.Ui.Hex(0x660A84FF) : Ui.Ui.Hex(0x01000000),
         };
         row.Tapped += (_, _) => { _selection = d.Id; RefreshSidebar(); UpdateContent(); };
+        var menu = new MenuFlyout();
         if (d.IsOnline)
         {
-            var menu = new MenuFlyout();
             var mirror = new MenuFlyoutItem { Text = "鏡像畫面" };
             mirror.Click += (_, _) => WindowManager.OpenMirror(d);
             menu.Items.Add(mirror);
-            row.ContextFlyout = menu;
         }
+        if (d.IsWireless && !d.IsRemote)
+        {
+            if (menu.Items.Count > 0) menu.Items.Add(new MenuFlyoutSeparator());
+            if (_dm.Saved(d) is { } saved)
+            {
+                var auto = new ToggleMenuFlyoutItem { Text = "自動重新連線", IsChecked = saved.Auto };
+                auto.Click += (_, _) => _dm.SetAutoReconnect(saved.Address, auto.IsChecked);
+                menu.Items.Add(auto);
+            }
+            var keep = new MenuFlyoutItem { Text = "中斷連線（保留在清單）" }; keep.Click += async (_, _) => await _dm.DisconnectKeepingAsync(d);
+            var drop = new MenuFlyoutItem { Text = "中斷連線並從清單移除" }; drop.Click += async (_, _) => await _dm.DisconnectAsync(d);
+            menu.Items.Add(keep); menu.Items.Add(drop);
+        }
+        if (menu.Items.Count > 0) row.ContextFlyout = menu;
         return row;
     }
 
@@ -262,30 +326,4 @@ public sealed class MainWindow : Window
             new TextBlock { Text = body, Foreground = Ui.Ui.Secondary, TextWrapping = TextWrapping.Wrap, TextAlignment = TextAlignment.Center },
         },
     };
-
-    // MARK: 加入無線裝置
-
-    private async Task ShowAddDialog()
-    {
-        var box = new TextBox { PlaceholderText = "例如 192.168.1.20:5555", Width = 320 };
-        var result = Ui.Ui.Text("", 12, true);
-        var dialog = new ContentDialog
-        {
-            Title = "加入無線裝置", PrimaryButtonText = "連線", CloseButtonText = "關閉", XamlRoot = Content.XamlRoot,
-            Content = new StackPanel { Spacing = 10, Children = { Ui.Ui.Text("在手機的「開發人員選項 → 無線偵錯」查看位址與連接埠。", 12, true), box, result } },
-        };
-        dialog.PrimaryButtonClick += async (_, e) =>
-        {
-            e.Cancel = true;
-            var addr = box.Text.Trim();
-            if (addr.Length == 0) return;
-            if (!addr.Contains(':')) addr += ":5555";
-            result.Text = "連線中…";
-            var (ok, msg) = await AdbClient.ConnectAsync(addr);
-            result.Text = msg;
-            await _dm.RefreshAsync();
-            if (ok) dialog.Hide();
-        };
-        await dialog.ShowAsync();
-    }
 }
