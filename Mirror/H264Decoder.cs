@@ -11,6 +11,7 @@ namespace PhoneCentre.Mirror;
 /// </summary>
 public sealed unsafe class H264Decoder : IDisposable
 {
+    private const int Padding = 256;
     private IntPtr _ctx, _pkt, _frame, _sws;
     private byte[] _config = [];
     private readonly object _gate = new();
@@ -21,6 +22,17 @@ public sealed unsafe class H264Decoder : IDisposable
     private bool _sawKey;
 
     public event Action<int, int>? SizeChanged;
+
+    /// <summary>每個關鍵幀都保留一份（不是全黑才算），獨立視窗的 App 被關掉時拿來當霧化背景（只有獨立視窗開啟，省記憶體）</summary>
+    public bool KeepLastFrame { get; set; }
+    private (byte[] Bgra, int W, int H)? _lastGood;
+    private bool _curKey;
+    private Action<byte[], int, int>? _capture;
+
+    public (byte[] Bgra, int W, int H)? LastGoodFrame { get { lock (_gate) return _lastGood; } }
+
+    /// <summary>下一個關鍵幀解出來時呼叫（背景執行緒）一次，給截圖用</summary>
+    public void CaptureNextKeyFrame(Action<byte[], int, int> done) { lock (_gate) _capture = done; }
 
     public H264Decoder()
     {
@@ -45,6 +57,7 @@ public sealed unsafe class H264Decoder : IDisposable
     {
         if (!_sawKey && !key) return;
         _sawKey = true;
+        _curKey = key;
         int extra = key ? _config.Length : 0;
         int r = av_new_packet(_pkt, packet.Length + extra);
         if (r < 0) return;
@@ -69,7 +82,9 @@ public sealed unsafe class H264Decoder : IDisposable
         _sws = sws_getCachedContext(_sws, w, h, fmt, w, h, AV_PIX_FMT_BGRA, SWS_BILINEAR, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
         if (_sws == IntPtr.Zero) { Log.Write($"sws 不支援像素格式 {fmt}"); return; }
 
-        int size = w * h * 4;
+        // swscale 的 SIMD 在畫面寬度不是 16 的倍數時，可能會在緩衝區尾端多寫幾個位元組（FFmpeg 要求輸出緩衝區要有填充），
+        // 沒留的話會寫壞 GC 堆，整個程式以「執行階段內部錯誤」崩潰（虛擬顯示器的寬度常常不是 16 的倍數）
+        int size = w * h * 4 + Padding;
         lock (_gate) { if (_back is null || _back.Length != size) _back = new byte[size]; }
         fixed (byte* outp = _back)
         {
@@ -86,8 +101,27 @@ public sealed unsafe class H264Decoder : IDisposable
             (_w, _h) = (w, h);
             _fresh = true;
         }
+        if (_curKey)
+        {
+            Action<byte[], int, int>? cap; byte[]? copy = null;
+            lock (_gate)
+            {
+                cap = _capture; _capture = null;
+                if (cap is not null || KeepLastFrame) copy = _front.AsSpan(0, w * h * 4).ToArray();
+                if (KeepLastFrame && copy is not null && !IsMostlyBlack(copy)) _lastGood = (copy, w, h);
+            }
+            if (cap is not null && copy is not null) cap(copy, w, h);
+        }
         if (++_decoded <= 2) Log.Write($"解出第 {_decoded} 幀 {w}x{h} fmt={fmt}");
         if (sizeChanged) SizeChanged?.Invoke(w, h);
+    }
+
+    /// <summary>取樣檢查是不是（幾乎）全黑：App 剛關掉時的黑畫面不能拿來當「最後一幀」</summary>
+    private static bool IsMostlyBlack(byte[] bgra)
+    {
+        long sum = 0; int n = 0;
+        for (int i = 0; i + 3 < bgra.Length; i += 4 * 97) { sum += bgra[i] + bgra[i + 1] + bgra[i + 2]; n++; }
+        return n == 0 || sum / (3.0 * n) < 6;
     }
 
     /// <summary>取最新一幀（沒有新的就回傳 false）。回傳的陣列只在下一次解碼前有效，請立刻複製</summary>

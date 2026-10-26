@@ -56,6 +56,7 @@ internal static class Ui
     {
         var b = new Button { Content = icon, Style = (Style)Application.Current.Resources["NavButtonStyle"], IsEnabled = enabled };
         ToolTipService.SetToolTip(b, tip);
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(b, tip);   // 無障礙名稱（螢幕閱讀器與自動化測試用）
         b.Click += (_, _) => click();
         return b;
     }

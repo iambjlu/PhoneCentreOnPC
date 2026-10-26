@@ -72,6 +72,8 @@ public sealed class SettingsData
     public int NotificationRetentionDays { get; set; } = 30;
     /// <summary>每台裝置（<see cref="Adb.Device.Key"/>）釘選的 App 套件名稱，依釘選順序</summary>
     public Dictionary<string, List<string>> Pinned { get; set; } = new();
+    /// <summary>各視窗上次的位置與大小：[左、上（像素）、客戶區寬、高（DIP）]，鍵是「Mirror.裝置.主螢幕／App／桌面」</summary>
+    public Dictionary<string, double[]> WindowFrames { get; set; } = new();
     /// <summary>密碼類資料也寫進同步資料夾（明碼）</summary>
     public bool SyncSecrets { get; set; }
     public Dictionary<string, string> Secrets { get; set; } = new();

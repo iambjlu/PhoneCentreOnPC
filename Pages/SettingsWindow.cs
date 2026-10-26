@@ -25,7 +25,7 @@ public sealed class SettingsWindow : Window
         PhoneCentre.Support.WindowIcon.Apply(this);
         SystemBackdrop = new MicaBackdrop();
         AppWindow.Resize(new Windows.Graphics.SizeInt32(700, 780));
-        if (AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter op) { op.PreferredMinimumWidth = 640; op.PreferredMinimumHeight = 520; }
+        _ = new WindowSubclass(this) { MinSize = () => (640, 520) };
 
         var tabs = new SegmentedBar(PageTitles) { Selected = page, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 12, 0, 8) };
         tabs.SelectionChanged += i => { _index = i; Show(); };

@@ -1,12 +1,10 @@
-using System.Runtime.InteropServices.WindowsRuntime;
-using Microsoft.UI.Dispatching;
-using Microsoft.UI.Input;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.UI.Xaml.Media.Imaging;
+using Microsoft.UI.Xaml.Shapes;
 using PhoneCentre.Adb;
 using PhoneCentre.Mirror;
 using PhoneCentre.Services;
@@ -14,396 +12,406 @@ using PhoneCentre.Settings;
 using PhoneCentre.Support;
 using PhoneCentre.Ui;
 using Windows.Graphics;
-using VirtualKey = Windows.System.VirtualKey;
 
 namespace PhoneCentre;
 
 /// <summary>
-/// 鏡像視窗（對應 MirrorContentView.swift／NavBar.swift）：左邊是手機畫面，右邊 76 寬的控制欄
-/// （狀態環、現在用的 App、其他 App、導覽項目、金剛三鍵）。
+/// 鏡像視窗（對應 MirrorWindowController.swift＋MirrorContentView.swift）：主螢幕鏡像依手機畫面比例調整；
+/// 虛擬顯示器（獨立 App、桌面模式）可自由調整大小，放開邊框時依新的大小重建虛擬顯示器，App 會以新的長寬重新排版。
 /// </summary>
 public sealed class MirrorWindow : Window
 {
-    private const double RailWidth = 76;
+    public MirrorModel Model { get; }
+    private readonly MirrorView _view;
+    private readonly WindowSubclass _sub;
+    private readonly Grid _root = new();
+    private readonly Grid _videoArea = new() { Background = Ui.Ui.Hex(0xFF000000) };
+    private readonly Grid _overlays = new() { IsHitTestVisible = true };
+    private readonly Rectangle _flash = new() { Fill = new SolidColorBrush(Microsoft.UI.Colors.White), Opacity = 0, IsHitTestVisible = false };
+    private SideColumn _rail;
+    private bool _compact, _sizedOnce, _userResized, _closing, _cleanedUp;
+    private (double W, double H)? _savedVideo;
+    private double? _savedMainVideoHeight;
+    public Action? OnClosed;
 
-    private readonly Device _device;
-    private readonly AppCatalog _catalog;
-    private ScrcpySession? _session;
-    private H264Decoder? _decoder;
-    private WriteableBitmap? _bitmap;
-    private (int W, int H) _frame;
-    private bool _sized, _pressed, _screenOff;
-    private DispatcherQueueTimer? _taskTimer, _toastTimer;
+    private double Scale => Content?.XamlRoot?.RasterizationScale ?? 1;
 
-    private readonly Image _video = new() { Stretch = Stretch.Uniform };
-    private readonly UserControl _surface = new() { IsTabStop = true, Background = Ui.Ui.Hex(0x01000000) };
-    private readonly TextBlock _status = Ui.Ui.Text("", 14, true);
-    private readonly Border _toast = new();
-    private readonly TextBlock _toastText = Ui.Ui.Text("", 13);
-    private readonly StatusIndicator _indicator = new(38);
-    private readonly StackPanel _appsHost = new() { Spacing = 8 };
-    private readonly StackPanel _navHost = new();
-    private Button? _screenOffButton;
-
-    public MirrorWindow(Device device)
+    public MirrorWindow(MirrorModel model, (double X, double Y)? topLeft = null)
     {
-        _device = device;
-        _catalog = DeviceManager.Shared.Catalog(device);
-        Title = device.DisplayName;
+        Log.Write("MW:ctor start");
+        Model = model;
+        Title = model.Title;
         PhoneCentre.Support.WindowIcon.Apply(this);
-        SystemBackdrop = new DesktopAcrylicBackdrop();
-        AppWindow.Resize(new SizeInt32(520, 1000));
+        SystemBackdrop = new MicaBackdrop();
 
-        var root = new Grid();
-        root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(RailWidth) });
-
-        // 手機畫面區域是黑底（不透出毛玻璃）
-        var screen = new Grid { Background = Ui.Ui.Hex(0xFF000000) };
-        screen.Children.Add(_video);
-        _surface.Content = new Grid();
-        screen.Children.Add(_surface);
-        _status.HorizontalAlignment = HorizontalAlignment.Left; _status.VerticalAlignment = VerticalAlignment.Top;
-        _status.Margin = new Thickness(12); _status.TextWrapping = TextWrapping.Wrap;
-        screen.Children.Add(_status);
-        _toast.Child = _toastText;
-        _toast.Background = Ui.Ui.Hex(0xCC202020); _toast.CornerRadius = new CornerRadius(12); _toast.Padding = new Thickness(14, 8, 14, 8);
-        _toast.HorizontalAlignment = HorizontalAlignment.Center; _toast.VerticalAlignment = VerticalAlignment.Bottom;
-        _toast.Margin = new Thickness(0, 0, 0, 24); _toast.Visibility = Visibility.Collapsed; _toast.IsHitTestVisible = false;
-        screen.Children.Add(_toast);
-        root.Children.Add(screen);
-
-        var rail = BuildRail();
-        Grid.SetColumn(rail, 1);
-        root.Children.Add(rail);
-        Content = root;
-
-        _surface.PointerPressed += (_, e) => { _surface.Focus(FocusState.Pointer); OnPointer(e, ControlMessage.MotionAction.Down); };
-        _surface.PointerMoved += (_, e) => { if (_pressed) OnPointer(e, ControlMessage.MotionAction.Move); };
-        _surface.PointerReleased += (_, e) => OnPointer(e, ControlMessage.MotionAction.Up);
-        _surface.PointerCanceled += (_, e) => { if (_pressed) OnPointer(e, ControlMessage.MotionAction.Up); };
-        _surface.PointerWheelChanged += OnWheel;
-        _surface.KeyDown += (_, e) => OnKey(e, ControlMessage.KeyAction.Down);
-        _surface.KeyUp += (_, e) => OnKey(e, ControlMessage.KeyAction.Up);
-
-        DeviceStatusStore.Shared.Changed += UpdateStatus;
-        _catalog.Changed += RebuildApps;
-        Closed += (_, _) => Shutdown();
-
-        var q = DispatcherQueue.GetForCurrentThread();
-        _taskTimer = q.CreateTimer(); _taskTimer.Interval = TimeSpan.FromSeconds(3);
-        _taskTimer.Tick += (_, _) => _ = _catalog.RefreshTasksAsync();
-        _taskTimer.Start();
-        _toastTimer = q.CreateTimer(); _toastTimer.IsRepeating = false;
-        _toastTimer.Tick += (_, _) => _toast.Visibility = Visibility.Collapsed;
-
-        UpdateStatus();
-        RebuildApps();
-        _ = _catalog.ReloadAsync().ContinueWith(_ => q.TryEnqueue(() => _ = _catalog.RefreshTasksAsync()));
-        StartSession();
-    }
-
-    // MARK: 右側欄
-
-    private FrameworkElement BuildRail()
-    {
-        var rail = new Grid { Background = Ui.Ui.Hex(0x40000000), Padding = new Thickness(8, 10, 8, 8), RowSpacing = 8 };
-        rail.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        rail.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-        rail.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-
-        _indicator.HorizontalAlignment = HorizontalAlignment.Center;
-        // 點一下狀態環降下通知中心
-        _indicator.Tapped += (_, _) => _session?.Send(ControlMessage.ExpandNotifications());
-        rail.Children.Add(_indicator);
-
-        var appsScroll = new ScrollViewer { Content = _appsHost, VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, VerticalScrollMode = ScrollMode.Auto };
-        Grid.SetRow(appsScroll, 1);
-        rail.Children.Add(appsScroll);
-
-        BuildNav();
-        var navPanel = Ui.Ui.Panel(_navHost);
-        Grid.SetRow(navPanel, 2);
-        rail.Children.Add(navPanel);
-        return rail;
-    }
-
-    /// <summary>App 列：現在用的 App 一塊盤子，其他已開啟的與喜好項目另一塊（已開啟的在前、分隔線、還沒開的在後）</summary>
-    private void RebuildApps()
-    {
-        _appsHost.Children.Clear();
-        var (opened, unopened) = _catalog.BarOrder(AppSettings.Pinned(_device.Key));
-        var cur = _catalog.Foreground;
-        if (cur is not null)
-            _appsHost.Children.Add(Ui.Ui.Panel(new StackPanel { Padding = new Thickness(0, 8, 0, 8), Children = { AppButton(cur) } }));
-        var others = opened.Where(p => p != cur).ToList();
-        if (others.Count + unopened.Count == 0) return;
-        var col = new StackPanel { Spacing = 4, Padding = new Thickness(0, 8, 0, 8) };
-        foreach (var p in others) col.Children.Add(AppButton(p));
-        if (others.Count > 0 && unopened.Count > 0) col.Children.Add(Ui.Ui.Divider(0.3));
-        foreach (var p in unopened) col.Children.Add(AppButton(p));
-        _appsHost.Children.Add(Ui.Ui.Panel(col));
-    }
-
-    private FrameworkElement AppButton(string pkg)
-    {
-        var grid = new Grid { Width = 52, Height = 46, Background = Ui.Ui.Hex(0x01000000), HorizontalAlignment = HorizontalAlignment.Center };
-        var icon = Ui.Ui.AppIcon(_catalog, pkg, 38);
-        icon.HorizontalAlignment = HorizontalAlignment.Center; icon.VerticalAlignment = VerticalAlignment.Center;
-        grid.Children.Add(icon);
-        // 執行中的右邊有小圓點，目前在最上層的拉長成圓角短線
-        if (_catalog.Running.Contains(pkg))
+        Log.Write("MW:new MirrorView");
+        _view = new MirrorView(model, this);
+        if (model.IsVirtualDisplay)
         {
-            var mark = new Microsoft.UI.Xaml.Controls.Border
-            {
-                Width = 3, Height = pkg == _catalog.Foreground ? 14 : 3, CornerRadius = new CornerRadius(1.5),
-                Background = Ui.Ui.Hex(0xCCFFFFFF), HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center,
-            };
-            grid.Children.Add(mark);
+            _view.OnBack = model.NavBack;
+            // 中鍵／Ctrl＋Backspace：桌面模式送 Home 到該桌面；單一 App 視窗不要因為誤按中鍵就關掉視窗
+            if (model.DesktopMode) _view.OnHome = model.NavHome;
         }
-        ToolTipService.SetToolTip(grid, _catalog.Label(pkg));
-        grid.Tapped += (_, _) => Launch(pkg);
+        Log.Write("MW:new SideColumn");
+        _rail = new SideColumn(model, this);
 
-        var menu = new MenuFlyout();
-        var stop = new MenuFlyoutItem { Text = "強制停止" }; stop.Click += async (_, _) => await _catalog.ForceStopAsync(pkg);
-        var pin = new MenuFlyoutItem { Text = AppSettings.IsPinned(pkg, _device.Key) ? "移除喜好項目" : "加入喜好項目" };
-        pin.Click += (_, _) => { AppSettings.TogglePin(pkg, _device.Key); RebuildApps(); };
-        menu.Items.Add(stop); menu.Items.Add(new MenuFlyoutSeparator()); menu.Items.Add(pin);
-        grid.ContextFlyout = menu;
-        return grid;
-    }
+        Log.Write("MW:layout");
+        _videoArea.Children.Add(_view);
+        _videoArea.Children.Add(_overlays);
+        _videoArea.Children.Add(_flash);
+        Content = _root;
+        LayoutRoot(false);
 
-    /// <summary>導覽列：導覽項目在上，金剛三鍵（返回、主畫面、多工）固定在最下面</summary>
-    private void BuildNav()
-    {
-        _navHost.Padding = new Thickness(0, 6, 0, 6);
-        _navHost.Spacing = 1;
-        void Item(UIElement el) { _navHost.Children.Add(el); }
-        Item(Ui.Ui.NavButton(new MIcon("tune", 18), "畫質設定", () => ShowToast("畫質設定尚未移植到 Windows 版")));
-        Item(Ui.Ui.NavButton(new MIcon("keyboard", 18), "輸入方式", () => ShowToast("輸入方式尚未移植到 Windows 版")));
-        Item(Ui.Ui.NavButton(new MIcon("location_on", 18), "模擬定位", () => ShowToast("模擬定位尚未移植到 Windows 版")));
-        Item(Ui.Ui.NavButton(new MIcon("volume_up", 18), "聲音", () => ShowToast("聲音尚未移植到 Windows 版")));
-        Item(Ui.Ui.NavButton(new MIcon("photo_camera", 18), "截圖存到桌面", Screenshot));
-        Item(RotateButton());
-        _screenOffButton = Ui.Ui.NavButton(new MIcon("smartphone", 18), "讓手機黑屏（繼續鏡像）", ToggleScreenOff);
-        Item(_screenOffButton);
-        Item(Ui.Ui.NavButton(new MIcon("power_settings_new", 18), "電源", () => TapKey(26)));
-        _navHost.Children.Add(Ui.Ui.Divider(0.4));
-        Item(Ui.Ui.NavButton(new SamsungIcon(SamsungIcon.Kind.Back), "返回（右鍵／Esc）", () => TapKey(4)));
-        Item(Ui.Ui.NavButton(new SamsungIcon(SamsungIcon.Kind.Home), "主畫面（中鍵）", () => TapKey(3)));
-        Item(Ui.Ui.NavButton(new SamsungIcon(SamsungIcon.Kind.Recents), "最近使用", () => TapKey(187)));
-    }
-
-    private Button RotateButton()
-    {
-        var b = Ui.Ui.NavButton(new MIcon("screen_rotation", 18), "旋轉", () => { });
-        var menu = new MenuFlyout();
-        string[] names = ["直向", "橫向（向左）", "直向（倒立）", "橫向（向右）"];
-        for (int r = 0; r < 4; r++)
+        Log.Write("MW:subclass");
+        _sub = new WindowSubclass(this)
         {
-            int rot = r;
-            var item = new MenuFlyoutItem { Text = names[r] };
-            item.Click += (_, _) => _ = RunShell($"settings put system accelerometer_rotation 0; settings put system user_rotation {rot}");
-            menu.Items.Add(item);
-        }
-        menu.Items.Add(new MenuFlyoutSeparator());
-        var auto = new MenuFlyoutItem { Text = "自動旋轉" };
-        auto.Click += (_, _) => _ = RunShell("settings put system accelerometer_rotation 1");
-        var force = new MenuFlyoutItem { Text = "強制所有 App 使用這個方向" };
-        force.Click += (_, _) => _ = RunShell("wm set-ignore-orientation-request true; wm fixed-to-user-rotation enabled");
-        var unforce = new MenuFlyoutItem { Text = "恢復各 App 自己決定方向" };
-        unforce.Click += (_, _) => _ = RunShell("wm set-ignore-orientation-request false; wm fixed-to-user-rotation default");
-        menu.Items.Add(auto); menu.Items.Add(force); menu.Items.Add(unforce);
-        b.Flyout = menu;
-        return b;
-    }
-
-    private async Task RunShell(string cmd) { try { await _device.Client.ShellAsync(cmd); } catch { } }
-
-    // MARK: 狀態
-
-    private void UpdateStatus() => _indicator.Set(DeviceStatusStore.Shared.StatusFor(_device));
-
-    private void ShowToast(string text)
-    {
-        _toastText.Text = text;
-        _toast.Visibility = Visibility.Visible;
-        _toastTimer?.Stop(); _toastTimer!.Interval = TimeSpan.FromSeconds(3); _toastTimer.Start();
-    }
-
-    // MARK: 工作階段與影像
-
-    private void StartSession()
-    {
-        try
-        {
-            _decoder = new H264Decoder();
-            _session = new ScrcpySession(_device, new MirrorConfig { Audio = false });
-            _session.StateChanged += st =>
-            {
-                Log.Write($"狀態 {st.Kind} {st.Message}");
-                _status.Text = st.Kind == ScrcpySession.StateKind.Running ? "" : $"{(st.Kind == ScrcpySession.StateKind.Failed ? "連線失敗" : "連線中…")} {st.Message}";
-            };
-            _session.FrameSizeChanged += (w, h) => { Log.Write($"畫面大小 {w}x{h}"); _frame = (w, h); FitWindow(w, h); };
-            _session.VideoConfig += p => _decoder?.Config(p);
-            _session.VideoFrame += (p, _, key) => _decoder?.Decode(p, key);
-            _session.DeviceClipboard += _ => { };
-            CompositionTarget.Rendering += OnRendering;
-            _session.Start();
-        }
-        catch (Exception e)
-        {
-            Log.Write("錯誤 " + e);
-            _status.Text = e.Message;
-        }
-    }
-
-    /// <summary>第一次知道手機畫面大小時，把視窗調成合適的比例（高度不超過工作區的 90%）</summary>
-    private void FitWindow(int w, int h)
-    {
-        if (_sized || Content.XamlRoot is not { } xr) return;
-        _sized = true;
-        var area = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Nearest).WorkArea;
-        double scale = xr.RasterizationScale;
-        int clientH = (int)Math.Min(area.Height * 0.88 - 40, 1000 * scale);
-        int videoW = (int)(clientH * (double)w / h);
-        AppWindow.ResizeClient(new SizeInt32(videoW + (int)(RailWidth * scale), clientH));
-    }
-
-    /// <summary>每個畫面刷新取一次解碼器的最新幀，寫進 WriteableBitmap</summary>
-    private void OnRendering(object? sender, object e)
-    {
-        _decoder?.TryTakeFrame((bgra, w, h) =>
-        {
-            if (_bitmap is null || _bitmap.PixelWidth != w || _bitmap.PixelHeight != h)
-            {
-                _bitmap = new WriteableBitmap(w, h);
-                _video.Source = _bitmap;
-                _frame = (w, h);
-            }
-            using var stream = _bitmap.PixelBuffer.AsStream();
-            stream.Write(bgra, 0, w * h * 4);
-            _bitmap.Invalidate();
-        });
-    }
-
-    private void Shutdown()
-    {
-        CompositionTarget.Rendering -= OnRendering;
-        DeviceStatusStore.Shared.Changed -= UpdateStatus;
-        _catalog.Changed -= RebuildApps;
-        _taskTimer?.Stop();
-        if (_screenOff) _session?.Send(ControlMessage.SetDisplayPower(true));
-        _session?.Stop();
-        _decoder?.Dispose();
-    }
-
-    // MARK: 動作
-
-    public void Launch(string pkg) => _session?.Send(ControlMessage.StartApp(pkg));
-
-    private void TapKey(int code)
-    {
-        _session?.Send(ControlMessage.Keycode(ControlMessage.KeyAction.Down, code));
-        _session?.Send(ControlMessage.Keycode(ControlMessage.KeyAction.Up, code));
-    }
-
-    private void ToggleScreenOff()
-    {
-        _screenOff = !_screenOff;
-        _session?.Send(ControlMessage.SetDisplayPower(!_screenOff));
-        if (_screenOffButton is not null)
-        {
-            _screenOffButton.Content = new MIcon(_screenOff ? "mobile_off" : "smartphone", 18);
-            ToolTipService.SetToolTip(_screenOffButton, _screenOff ? "點亮手機螢幕" : "讓手機黑屏（繼續鏡像）");
-        }
-    }
-
-    /// <summary>主螢幕用 screencap，存到桌面</summary>
-    private async void Screenshot()
-    {
-        try
-        {
-            var data = await _device.Client.ExecAsync("screencap -p", 20);
-            if (data.Length < 100 || data[0] != 0x89 || data[1] != 0x50) { ShowToast("截圖失敗"); return; }
-            var name = $"{_device.DisplayName} 截圖 {DateTime.Now:yyyy-MM-dd HH.mm.ss}.png";
-            var path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), name);
-            await File.WriteAllBytesAsync(path, data);
-            ShowToast($"已存到桌面：{name}");
-        }
-        catch { ShowToast("截圖失敗"); }
-    }
-
-    // MARK: 輸入（滑鼠左鍵＝觸控、右鍵＝返回、中鍵＝主畫面、滾輪＝捲動）
-
-    private bool ToPhone(Windows.Foundation.Point p, out int x, out int y)
-    {
-        x = y = 0;
-        if (_frame.W == 0) return false;
-        double W = _surface.ActualWidth, H = _surface.ActualHeight;
-        double scale = Math.Min(W / _frame.W, H / _frame.H);
-        double ox = (W - _frame.W * scale) / 2, oy = (H - _frame.H * scale) / 2;
-        x = (int)Math.Clamp((p.X - ox) / scale, 0, _frame.W - 1);
-        y = (int)Math.Clamp((p.Y - oy) / scale, 0, _frame.H - 1);
-        return true;
-    }
-
-    private void OnPointer(PointerRoutedEventArgs e, ControlMessage.MotionAction action)
-    {
-        if (_session is null) return;
-        var pt = e.GetCurrentPoint(_surface);
-        var props = pt.Properties;
-        if (action == ControlMessage.MotionAction.Down)
-        {
-            if (props.IsRightButtonPressed)
-            {
-                _session.Send(ControlMessage.BackOrScreenOn(ControlMessage.KeyAction.Down));
-                _session.Send(ControlMessage.BackOrScreenOn(ControlMessage.KeyAction.Up));
-                return;
-            }
-            if (props.IsMiddleButtonPressed) { TapKey(3); return; }
-            if (!props.IsLeftButtonPressed) return;
-            _pressed = true;
-            _surface.CapturePointer(e.Pointer);
-        }
-        else if (!_pressed) return;
-        if (action == ControlMessage.MotionAction.Up) { _pressed = false; _surface.ReleasePointerCapture(e.Pointer); }
-        if (!ToPhone(pt.Position, out int x, out int y)) return;
-        bool up = action == ControlMessage.MotionAction.Up;
-        _session.Send(ControlMessage.Touch(action, ControlMessage.PointerFinger, x, y, (ushort)_frame.W, (ushort)_frame.H,
-            up ? 0f : 1f, 0, up ? 0 : 1));
-    }
-
-    private void OnWheel(object sender, PointerRoutedEventArgs e)
-    {
-        if (_session is null) return;
-        var pt = e.GetCurrentPoint(_surface);
-        if (!ToPhone(pt.Position, out int x, out int y)) return;
-        float v = pt.Properties.MouseWheelDelta / 120f;     // 向上滾＝內容往下
-        _session.Send(ControlMessage.Scroll(x, y, (ushort)_frame.W, (ushort)_frame.H, 0, v));
-        e.Handled = true;
-    }
-
-    /// <summary>實體按鍵：依按鍵位置送 Android keycode（文字輸入與輸入法之後再做）</summary>
-    private void OnKey(KeyRoutedEventArgs e, ControlMessage.KeyAction action)
-    {
-        if (_session is null) return;
-        int code = KeyMap(e.Key);
-        if (code < 0) return;
-        _session.Send(ControlMessage.Keycode(action, code));
-        e.Handled = true;
-    }
-
-    private static int KeyMap(VirtualKey k)
-    {
-        if (k is >= VirtualKey.A and <= VirtualKey.Z) return 29 + (k - VirtualKey.A);
-        if (k is >= VirtualKey.Number0 and <= VirtualKey.Number9) return 7 + (k - VirtualKey.Number0);
-        return k switch
-        {
-            VirtualKey.Enter => 66, VirtualKey.Back => 67, VirtualKey.Delete => 112, VirtualKey.Tab => 61, VirtualKey.Space => 62,
-            VirtualKey.Escape => 4, VirtualKey.Up => 19, VirtualKey.Down => 20, VirtualKey.Left => 21, VirtualKey.Right => 22,
-            VirtualKey.Home => 122, VirtualKey.End => 123, VirtualKey.PageUp => 92, VirtualKey.PageDown => 93,
-            _ => -1,
+            MinSize = () => MinFrame(IsLandscape()),
+            KeepAspect = () => !Model.IsVirtualDisplay && Model.FrameSize.W > 0 && Model.FrameSize.H > 0 ? (Model.FrameSize.W / (double)Model.FrameSize.H, _compact ? 0 : MirrorLayout.RailWidth, _compact ? MirrorLayout.BottomBarHeight : MirrorLayout.ToolbarHeight) : null,
         };
+        _sub.ResizeEnded += OnResizeEnded;
+
+        Log.Write("MW:hooks");
+        model.Changed += Refresh;
+        model.OnFrameSize = Fit;
+        model.OnRotateWindow = RotateWindow;
+        model.OnCloseWindow = () => Close();
+        model.OnHideWindow = () => AppWindow.Hide();
+        model.GetXamlRoot = () => Content.XamlRoot;
+        model.IsActive = () => AppWindow.IsVisible && IsForeground;
+        model.FlashRequested += Flash;
+        model.LinkChanged += () => { };
+        model.Catalog.Changed += () => { Title = model.Title; };
+        Closed += OnWindowClosed;
+        // 關閉前先讓 App 回到背景（虛擬顯示器視窗）
+        AppWindow.Closing += OnClosing;
+        AppWindow.Changed += (_, e) => { if (e.DidSizeChange) OnSizeChanged(); };
+
+        // 還原上次的視窗大小（獨立視窗常見）
+        Log.Write("MW:restore");
+        RestoreFrame(topLeft);
+        Log.Write("MW:refresh");
+        Refresh();
+        Log.Write("MW:ctor done");
+    }
+
+    private bool IsForeground => GetForegroundWindow() == WinRT.Interop.WindowNative.GetWindowHandle(this);
+    [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
+
+    // MARK: 版面（右側欄在右邊，或橫向且高度不夠時移到底部）
+
+    private (double W, double H) ContentSize
+    {
+        get { var c = AppWindow.ClientSize; double s = Scale; return (c.Width / s, c.Height / s); }
+    }
+
+    private bool IsLandscape()
+    {
+        var (fw, fh) = Model.FrameSize;
+        if (!Model.IsVirtualDisplay && fw > 0 && fh > 0) return fw > fh;
+        var c = ContentSize;
+        return c.W > c.H;
+    }
+
+    private static (double W, double H) MinFrame(bool landscape) => landscape
+        ? (MirrorLayout.LandscapeMinFrameWidth, MirrorLayout.LandscapeMinFrameHeight)
+        : (MirrorLayout.PortraitMinFrameWidth, MirrorLayout.PortraitMinFrameHeight);
+
+    private bool ShouldCompact()
+    {
+        var c = ContentSize;
+        bool landscape = Model.IsVirtualDisplay ? c.W > c.H : Model.FrameSize.W > Model.FrameSize.H;
+        return landscape && c.H < MirrorLayout.CompactContentHeight;
+    }
+
+    private double ChromeW => _compact ? 0 : MirrorLayout.RailWidth;
+    private double ChromeH => _compact ? MirrorLayout.BottomBarHeight : MirrorLayout.ToolbarHeight;
+
+    /// <summary>橫向模式且視窗內容高度未滿 608：右側欄整排移到視窗底部；直向模式永遠在右邊</summary>
+    private void LayoutRoot(bool compact)
+    {
+        _compact = compact;
+        _root.Children.Clear(); _root.ColumnDefinitions.Clear(); _root.RowDefinitions.Clear();
+        _rail.SetHorizontal(compact);
+        if (compact)
+        {
+            _root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            _root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(MirrorLayout.BottomBarHeight) });
+            _root.Children.Add(_videoArea);
+            Grid.SetRow(_rail, 1); _root.Children.Add(_rail);
+        }
+        else
+        {
+            _root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            _root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(MirrorLayout.RailWidth) });
+            _root.Children.Add(_videoArea);
+            Grid.SetColumn(_rail, 1); _root.Children.Add(_rail);
+        }
+    }
+
+    private void OnSizeChanged()
+    {
+        bool compact = ShouldCompact();
+        if (compact != _compact) LayoutRoot(compact);
+        ClampToMin();
+        SaveFrame();
+    }
+
+    // MARK: 視窗大小
+
+    private string FrameKey => $"Mirror.{Model.Device.Id}.{Model.AppPackage ?? (Model.DesktopMode ? "desktop" : "main")}";
+
+    private void RestoreFrame((double X, double Y)? topLeft)
+    {
+        var area = DisplayArea.Primary.WorkArea;
+        bool restored = false;
+        try
+        {
+            if (AppSettings.Data.WindowFrames.TryGetValue(FrameKey, out var f) && f.Length == 4 && f[2] > 100 && f[3] > 100)
+            {
+                // f = 客戶區寬、高（DIP）、左上角 x、y（像素）
+                double s = Scale;
+                AppWindow.ResizeClient(new SizeInt32((int)(f[2] * s), (int)(f[3] * s)));
+                var pos = new PointInt32((int)f[0], (int)f[1]);
+                if (pos.X > area.X - 200 && pos.X < area.X + area.Width - 100 && pos.Y > area.Y - 20 && pos.Y < area.Y + area.Height - 100) AppWindow.Move(pos);
+                restored = true;
+                var (cw, ch) = (f[2], f[3]);
+                if (Model.IsVirtualDisplay) _savedVideo = (cw - MirrorLayout.RailWidth, ch - MirrorLayout.ToolbarHeight);
+                else _savedMainVideoHeight = ch - MirrorLayout.ToolbarHeight;
+            }
+        }
+        catch { }
+        if (!restored) AppWindow.Resize(new SizeInt32(Math.Min(520, area.Width), Math.Min(900, area.Height)));
+        if (topLeft is { } p) AppWindow.Move(new PointInt32((int)p.X, (int)p.Y));
+        else if (!restored)
+        {
+            // 錯開排列，不要疊在其他視窗正上方
+            int n = WindowManager.OpenCount;
+            AppWindow.Move(new PointInt32(area.X + 80 + 40 * n, area.Y + 40 + 30 * n));
+        }
+    }
+
+    private void SaveFrame()
+    {
+        if (!_sizedOnce || _closing) return;
+        try
+        {
+            var (cw, ch) = ContentSize; var p = AppWindow.Position;
+            AppSettings.Data.WindowFrames[FrameKey] = [p.X, p.Y, cw, ch];
+        }
+        catch { }
+    }
+
+    /// <summary>依影像大小調整視窗（第一次或旋轉時）</summary>
+    private void Fit(int w, int h)
+    {
+        if (w <= 0 || h <= 0) return;
+        Title = Model.Title;
+        // 虛擬顯示器的大小是依視窗決定的，使用者調整過後就不要反過來改視窗
+        if (Model.IsVirtualDisplay && _userResized) { _sizedOnce = true; return; }
+        var area = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Nearest).WorkArea;
+        double s = Scale, sw = area.Width / s, sh = area.Height / s;
+        var (cw, ch) = ContentSize;
+        double aspect = w / (double)h, videoH;
+        if (_sizedOnce)
+        {
+            // 旋轉：保持較長邊大約不變
+            var oldVideo = (W: cw - ChromeW, H: ch - ChromeH);
+            double longSide = Math.Max(oldVideo.W, oldVideo.H);
+            videoH = aspect >= 1 ? longSide / aspect : longSide;
+        }
+        else
+        {
+            videoH = Model.IsVirtualDisplay ? Math.Min(h / Math.Max(1, s), sh * 0.9 - ChromeH) : Math.Min(sh * 0.85 - ChromeH - 40, h);
+            if (!Model.IsVirtualDisplay && _savedMainVideoHeight is { } sv && sv > 200) videoH = Math.Min(sv, sh * 0.95 - ChromeH - 40);
+        }
+        double videoW = videoH * aspect, maxW = sw * 0.9 - ChromeW;
+        if (videoW > maxW) { videoW = maxW; videoH = videoW / aspect; }
+        double contentW = Math.Round(videoW + MirrorLayout.RailWidth), contentH = Math.Round(videoH + MirrorLayout.ToolbarHeight);
+        // 高度不到門檻：右側欄會移到底部橫條，影像區是整個寬度、下面多一條橫條
+        if (w > h && contentH < MirrorLayout.CompactContentHeight) { contentW = Math.Round(videoW); contentH = Math.Round(videoH + MirrorLayout.BottomBarHeight); }
+        AppWindow.ResizeClient(new SizeInt32((int)(contentW * s), (int)(contentH * s)));
+        // 不要超出螢幕
+        var pos = AppWindow.Position; var size = AppWindow.Size;
+        AppWindow.Move(new PointInt32(Math.Clamp(pos.X, area.X, Math.Max(area.X, area.X + area.Width - size.Width)), Math.Clamp(pos.Y, area.Y, Math.Max(area.Y, area.Y + area.Height - size.Height))));
+        _sizedOnce = true;
+        OnSizeChanged();
+    }
+
+    /// <summary>視窗比最小大小還小就放大（從上次記住的大小還原時不會自動套用最小值）。左上角不動。</summary>
+    private void ClampToMin()
+    {
+        var (mw, mh) = MinFrame(IsLandscape());
+        double s = Scale;
+        var size = AppWindow.Size;
+        int minW = (int)Math.Ceiling(mw * s), minH = (int)Math.Ceiling(mh * s);
+        if (size.Width >= minW - 1 && size.Height >= minH - 1) return;
+        AppWindow.Resize(new SizeInt32(Math.Max(size.Width, minW), Math.Max(size.Height, minH)));
+    }
+
+    /// <summary>虛擬顯示器旋轉：視窗寬高對調，再依新的大小重建顯示器</summary>
+    private void RotateWindow()
+    {
+        var (cw, ch) = ContentSize;
+        var video = (W: cw - ChromeW, H: ch - ChromeH);
+        double s = Scale;
+        AppWindow.ResizeClient(new SizeInt32((int)((video.H + ChromeW) * s), (int)((video.W + ChromeH) * s)));
+        _userResized = true;
+        Model.BackingScale = s;
+        var n = ContentSize;
+        Model.ResizeVirtualDisplay(n.W - ChromeW, n.H - ChromeH);
+    }
+
+    /// <summary>放開邊框：依新的視窗大小重建虛擬顯示器</summary>
+    private void OnResizeEnded()
+    {
+        if (!Model.IsVirtualDisplay) return;
+        _userResized = true;
+        Model.BackingScale = Scale;
+        var c = ContentSize;
+        Model.ResizeVirtualDisplay(c.W - ChromeW, c.H - ChromeH);
+    }
+
+    /// <summary>顯示視窗並連線（對應 show()）</summary>
+    public new void Activate()
+    {
+        Model.BackingScale = Scale;
+        if (_savedVideo is { } sv && sv.W > 100 && sv.H > 100) { _userResized = true; Model.PresetDisplay(sv.W, sv.H); }
+        Log.Write("MW:activate");
+        base.Activate();
+        AppWindow.Show();
+        Log.Write("MW:activated");
+        _view.Focus(FocusState.Programmatic);
+        if (!_started) { _started = true; Log.Write("MW:model start"); Model.Start(); Log.Write("MW:model started"); }
+    }
+
+    private bool _started;
+
+    // MARK: 關閉
+
+    private async void OnClosing(AppWindow sender, AppWindowClosingEventArgs e)
+    {
+        if (_cleanedUp || !Model.IsVirtualDisplay) return;
+        // 虛擬顯示器視窗關閉前，先讓 App 回到背景再真正關閉
+        e.Cancel = true;
+        await Model.SendAppsToBackgroundAsync();
+        _cleanedUp = true;
+        Close();
+    }
+
+    private void OnWindowClosed(object sender, WindowEventArgs e)
+    {
+        _closing = true;
+        try { AppSettings.Save(); } catch { }
+        Model.Changed -= Refresh;
+        _view.Detach();
+        Model.Stop();
+        OnClosed?.Invoke();
+    }
+
+    // MARK: 疊加訊息（一律毛玻璃底）
+
+    private static Border GlassCard(UIElement child, double radius = 14) => new()
+    {
+        Child = child, CornerRadius = new CornerRadius(radius), Background = Ui.Ui.Hex(0xD8202225),
+        BorderBrush = Ui.Ui.Hex(0x30FFFFFF), BorderThickness = new Thickness(1),
+    };
+
+    private void Flash()
+    {
+        _flash.Opacity = 1;
+        var anim = new DoubleAnimation { From = 1, To = 0, Duration = TimeSpan.FromMilliseconds(500), EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
+        Storyboard.SetTarget(anim, _flash); Storyboard.SetTargetProperty(anim, "Opacity");
+        var sb = new Storyboard(); sb.Children.Add(anim); sb.Begin();
+    }
+
+    /// <summary>依 Model 的狀態重畫疊加層與右側欄</summary>
+    private void Refresh()
+    {
+        Title = Model.Title;
+        _overlays.Children.Clear();
+
+        // 主螢幕與獨立視窗都用頂端的小橫幅（可以關掉）：手機鎖著時第二螢幕常常還看得到 App，不要用大卡片擋住畫面
+        if (Model.ShowUnlockBanner)
+        {
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, Padding = new Thickness(2) };
+            row.Children.Add(new MIcon("lock", 18));
+            row.Children.Add(new TextBlock { Text = "手機已鎖定", VerticalAlignment = VerticalAlignment.Center });
+            if (LockScreenHelper.HasPassword(Model.Device))
+            {
+                var b = new Button { Style = (Style)Application.Current.Resources["AccentButtonStyle"] };
+                b.Content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Children = { new MIcon("fingerprint", 16), new TextBlock { Text = "用 Windows Hello 解鎖" } } };
+                b.Click += async (_, _) => await Model.UnlockAsync();
+                row.Children.Add(b);
+            }
+            else
+            {
+                var b = new Button { Content = "儲存解鎖密碼…" };
+                b.Click += async (_, _) => await Popovers.ShowPasswordDialogAsync(Model.Device, Content.XamlRoot);
+                row.Children.Add(b);
+            }
+            var x = new Button { Content = new MIcon("close", 14), Padding = new Thickness(6), Background = null, BorderThickness = new Thickness(0) };
+            x.Click += (_, _) => Model.DismissUnlock();
+            row.Children.Add(x);
+            var card = GlassCard(row, 12); card.Padding = new Thickness(10);
+            card.VerticalAlignment = VerticalAlignment.Top; card.HorizontalAlignment = HorizontalAlignment.Center;
+            card.Margin = new Thickness(0, Model.IsVirtualDisplay ? 12 : 49, 0, 0);   // 主螢幕往下一點，不要擋住手機的狀態列
+            _overlays.Children.Add(card);
+        }
+
+        if (Model.MarkedText.Length > 0)
+        {
+            var t = new TextBlock { Text = Model.MarkedText, FontSize = 18 };
+            var card = GlassCard(t, 16); card.Padding = new Thickness(14, 7, 14, 7);
+            card.VerticalAlignment = VerticalAlignment.Bottom; card.HorizontalAlignment = HorizontalAlignment.Center; card.Margin = new Thickness(0, 0, 0, 100);
+            card.IsHitTestVisible = false;
+            _overlays.Children.Add(card);
+        }
+
+        if (Model.AppClosed && Model.StatusText is null && Model.AppPackage is { } pkg)
+        {
+            // 整個畫面區毛玻璃：最後一幀霧化當底，上面再蓋一層毛玻璃（App 不支援橫向時兩側的黑邊也一起霧化）
+            if (Model.ClosedSnapshot is { } snap)
+            {
+                var bmp = new WriteableBitmap(snap.W, snap.H);
+                using (var st = System.Runtime.InteropServices.WindowsRuntime.WindowsRuntimeBufferExtensions.AsStream(bmp.PixelBuffer)) st.Write(snap.Bgra, 0, snap.W * snap.H * 4);
+                bmp.Invalidate();
+                _overlays.Children.Add(new Image { Source = bmp, Stretch = Stretch.UniformToFill, IsHitTestVisible = false });
+            }
+            _overlays.Children.Add(new Rectangle
+            {
+                IsHitTestVisible = false,
+                Fill = new AcrylicBrush { TintColor = Windows.UI.Color.FromArgb(255, 24, 26, 30), TintOpacity = 0.55, TintLuminosityOpacity = 0.7, FallbackColor = Windows.UI.Color.FromArgb(235, 24, 26, 30) },
+            });
+            var col = new StackPanel { Spacing = 12, Padding = new Thickness(24), HorizontalAlignment = HorizontalAlignment.Center };
+            var icon = Ui.Ui.AppIcon(Model.Catalog, pkg, 56); icon.Opacity = 0.9; icon.HorizontalAlignment = HorizontalAlignment.Center;
+            col.Children.Add(icon);
+            col.Children.Add(new TextBlock { Text = $"{Model.AppLabel ?? Model.Catalog.Label(pkg)} 已關閉", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center });
+            var open = new Button { Content = "打開", Style = (Style)Application.Current.Resources["AccentButtonStyle"], Padding = new Thickness(28, 8, 28, 8), HorizontalAlignment = HorizontalAlignment.Center };
+            open.Click += (_, _) => Model.ReopenApp();
+            var close = new Button { Content = "關閉視窗", Background = null, BorderThickness = new Thickness(0), Foreground = Ui.Ui.Secondary, HorizontalAlignment = HorizontalAlignment.Center };
+            close.Click += (_, _) => Model.OnCloseWindow?.Invoke();
+            col.Children.Add(open); col.Children.Add(close);
+            var card = GlassCard(col, 18); card.HorizontalAlignment = HorizontalAlignment.Center; card.VerticalAlignment = VerticalAlignment.Center;
+            _overlays.Children.Add(card);
+        }
+
+        if (Model.StatusText is { } status)
+        {
+            var col = new StackPanel { Spacing = 12, Padding = new Thickness(20), HorizontalAlignment = HorizontalAlignment.Center };
+            col.Children.Add(new ProgressRing { IsActive = true, Width = 22, Height = 22 });
+            col.Children.Add(new TextBlock { Text = status, TextAlignment = TextAlignment.Center, TextWrapping = TextWrapping.Wrap, MaxWidth = 340 });
+            var card = GlassCard(col, 16); card.HorizontalAlignment = HorizontalAlignment.Center; card.VerticalAlignment = VerticalAlignment.Center;
+            _overlays.Children.Add(card);
+        }
+
+        // 提示訊息顯示在畫面正中間
+        if (Model.Toast is { } toast)
+        {
+            var t = new TextBlock { Text = toast, TextAlignment = TextAlignment.Center, TextWrapping = TextWrapping.Wrap, MaxWidth = 360 };
+            var card = GlassCard(t, 14); card.Padding = new Thickness(16, 10, 16, 10); card.Margin = new Thickness(24);
+            card.HorizontalAlignment = HorizontalAlignment.Center; card.VerticalAlignment = VerticalAlignment.Center; card.IsHitTestVisible = false;
+            _overlays.Children.Add(card);
+        }
+        _rail.Update();
     }
 }

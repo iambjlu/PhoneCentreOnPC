@@ -49,13 +49,17 @@ public partial class App : Application
         if (setArg is not null && int.TryParse(setArg, out var page)) WindowManager.OpenSettings(page);
 
         // 測試用：--mirror 在第一台在線裝置出現後自動開鏡像視窗
-        if (Environment.GetCommandLineArgs().Contains("--mirror"))
+        var cmdline = Environment.GetCommandLineArgs();
+        var appArg = cmdline.FirstOrDefault(a => a.StartsWith("--app="))?["--app=".Length..];
+        if (cmdline.Contains("--mirror") || cmdline.Contains("--desktop") || appArg is not null)
         {
             void Once()
             {
-                if (DeviceManager.Shared.OnlineDevices.FirstOrDefault() is not { } d) return;
+                if (DeviceManager.Shared.OnlineDevices.FirstOrDefault(d => d.Info is not null) is not { } d) return;
                 DeviceManager.Shared.Changed -= Once;
-                WindowManager.OpenMirror(d);
+                if (appArg is not null) WindowManager.OpenApp(d, appArg);
+                else if (cmdline.Contains("--desktop")) WindowManager.OpenDesktop(d);
+                else WindowManager.OpenMirror(d);
             }
             DeviceManager.Shared.Changed += Once;
         }

@@ -9,6 +9,7 @@ using PhoneCentre.Services;
 using PhoneCentre.Settings;
 using PhoneCentre.Support;
 using PhoneCentre.Ui;
+using PhoneCentre.Mirror;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Storage;
 using Windows.Storage.Pickers;
@@ -214,9 +215,9 @@ public sealed class OverviewPage : UserControl
     {
         var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
         row.Children.Add(BigButton("鏡像畫面", "cast", () => { if (Device is { } d) WindowManager.OpenMirror(d); }));
-        row.Children.Add(BigButton("桌面模式(Beta)", "desktop_windows", () => Toast("桌面模式尚未移植到 Windows 版")));
+        row.Children.Add(BigButton("桌面模式(Beta)", "desktop_windows", () => { if (Device is { } dd) WindowManager.OpenDesktop(dd); }));
         row.Children.Add(BigButton("安裝 APK…", "inventory_2", PickApk));
-        row.Children.Add(BigButton("解鎖密碼…", "fingerprint", () => Toast("解鎖密碼尚未移植到 Windows 版")));
+        row.Children.Add(BigButton("解鎖密碼…", "fingerprint", async () => { if (Device is { } dd) await Mirror.Popovers.ShowPasswordDialogAsync(dd, XamlRoot); }));
         row.Children.Add(BigButton("重新啟動…", "restart_alt", ConfirmReboot));
         return new ScrollViewer { Content = row, HorizontalScrollBarVisibility = ScrollBarVisibility.Hidden, HorizontalScrollMode = ScrollMode.Enabled, VerticalScrollMode = ScrollMode.Disabled };
     }

@@ -138,16 +138,55 @@ scrcpy 3.3.4 控制協定編碼（big-endian），與 Mac 版 Swift 逐位元組
 ### MainWindow.cs
 左邊 236 寬的裝置側邊欄（連線方式圖示、名稱、連線資訊、Android 版本、狀態環；底部 adb server 狀態與最近事件；+ 加入無線裝置），右邊是標題加 `SelectorBar` 分頁列（總覽／啟動台／檔案／通知／簡訊／通話記錄／相機膠卷）與內容。目前總覽與啟動台有內容。分頁列是 `SegmentedBar`。測試參數 `--tab=<Launchpad|Files|…>` 直接切到某一頁。預設大小 1100×880，但不超過工作區的 92% 並置中。
 
+### Mirror/MirrorModel.cs
+對應 `MirrorModel.swift`：一個鏡像視窗的狀態與工作階段管理，只在 UI 執行緒使用。主螢幕鏡像，或是在虛擬顯示器上執行單一 App（獨立視窗）／桌面（桌面模式）。
+- 狀態（連線中、提示、組字文字、手機鎖定、黑屏、靜音、鍵盤模式、畫質、影像大小、手機狀態、App 已關閉與最後一幀）改了都會觸發 `Changed`，視窗再重畫疊加層與右側欄。
+- 連線：`Start` 建立 `ScrcpySession`＋`H264Decoder`＋（主螢幕才有）`AudioPlayer`，每個 session 一組 `Link`；重啟時先拔掉舊 session 的回呼，延遲 0.6 秒等舊 server 釋放硬體編碼器；斷線時 `ScheduleRetry` 每 3 秒看裝置回來沒有（自動維持連線）。
+- 虛擬顯示器：大小＝視窗 DIP × 螢幕縮放（密度 160 × 縮放，1 DIP ≈ 1 dp，取 8 的倍數，受最大解析度限制）；連線後 `FinishConnectAsync` 以 `dumpsys display` 找名為 scrcpy、大小相符且尚未被認領的顯示器；調整視窗大小時 `Start(handover: true)` 保留舊 session，新顯示器就緒後用 `am display move-stack` 把舊顯示器的 root task 搬過去（確認舊顯示器沒有 task 才關舊 session）；`NudgeDisplayConfigAsync` 把密度加 1 再改回觸發 App 重新排版（先確認顯示器還在，否則 `wm density -d` 會退回操作主螢幕）；`EnsureAppOnDisplayAsync` 處理 App 本來就在別的顯示器執行時畫面黑掉；`SendAppsToBackgroundAsync` 關視窗前用手機端輔助程式 `tobg` 把 App 送到主螢幕背景再 `am kill`。
+- 獨立視窗每 2 秒檢查顯示器上是否還有 root task（連續兩次沒有才算關閉），顯示「XXX 已關閉」與「打開」「關閉視窗」；使用者在手機上自己重開時會自動搬回來。
+- 定時：剪貼簿（`Clipboard.ContentChanged` 標記後每 0.7 秒同步到手機）、手機狀態每 5 秒、App 列與鎖定偵測每 3 秒。
+- 操作：導覽鍵（虛擬顯示器上用 `input -d <id> keyevent`）、旋轉／自動旋轉／強制方向、黑屏、靜音、截圖（白閃；主螢幕 `screencap -p`，虛擬顯示器或失敗時取鏡像關鍵幀，用系統 `BitmapEncoder` 編成 PNG）、套用畫質（重啟）、拖放檔案。
+
+### Mirror/MirrorView.cs
+對應 `MirrorView.swift`：顯示畫面（`Image`＋`WriteableBitmap`，`CompositionTarget.Rendering` 取目前解碼器的最新幀）並把輸入轉成 scrcpy 控制訊息。左鍵＝觸控、右鍵＝返回、中鍵＝主畫面；一般滑鼠滾輪送捲動事件；觸控板（`PointerDeviceType.Touchpad`）兩指捲動模擬單指拖曳（移動超過 6 px 才放下手指，110 ms 沒有事件就放開，讓 Android 自己算慣性）；Ctrl＋滾輪（含觸控板捏合）以指標為中心斜向擺兩指縮放。鍵盤用 `PreviewKeyDown`：Ctrl＋V／C／X／A／Z 是剪貼簿、全選、復原；其餘依 `KeyMap` 送 keycode（含修飾鍵 meta 與重複）。
+- 輸入法：「Windows 輸入法」模式時，文字鍵（字母、數字、符號）交給畫面上一個看不見的 `TextBox`（Windows App SDK 沒有 WinUI 版的 `CoreTextEditContext`，所以用 TextBox 當橋接，組字與候選窗由它原生處理，候選窗出現在畫面下方中央）；`TextCompositionChanged` 讀組字文字顯示在畫面下方，提交的文字：ASCII 用 `INJECT_TEXT`，中文等非 ASCII 透過手機剪貼簿貼上（貼上前記住電腦剪貼簿，貼完 0.8 秒再放回，期間 `ClipboardGuardUntil` 不讓手機回傳的剪貼簿蓋掉電腦的）。「實體按鍵」模式所有按鍵直接送 keycode。
+- 拖放檔案進來交給 `MirrorModel.Drop`（APK 安裝、照片影片存相機膠卷、其他存下載）。
+
+### Mirror/SideColumn.cs
+對應 `NavBar.swift` 的 `SideColumn`：寬 76 的右側欄，由上到下：狀態環（點一下降下通知中心）、「現在用的 App」一塊盤子（完整顯示）、「其他」一塊盤子（已開啟的 → 分隔線 → 還沒開的喜好項目；放不下有箭頭可以捲動）、導覽盤子（導覽項目可捲動；金剛三鍵固定在最下面）。空間分配照 Mac 版：導覽項目優先，「其他」盤子最少留三個圖示，由 `Reallocate` 量測各塊的自然高度後設定高度。橫向且視窗內容高度未滿 608 時整排移到視窗底部橫向排列。獨立視窗沒有 App 盤子，現用的 App 圖示與名稱放在欄位正中間（橫向時在狀態環與導覽盤子之間那塊空白的正中間），導覽項目沒有定位，金剛三鍵換成「隱藏視窗」與「強制停止並關閉視窗」。App 已關閉時導覽盤子反灰不能按。
+- 執行中標記：垂直在右邊、水平在下面，目前在最上層的拉長成圓角短線。
+- 把 App 圖示往左或往右拖出 App 列超過 70 px 放開 → 在放開位置以獨立視窗開啟；拖曳時 `DragGhost`（透明置頂、不搶焦點、滑鼠穿透的小視窗）顯示跟著游標的半透明圖示，超過距離時右下角出現綠色加號。右鍵：強制停止、在獨立視窗開啟、喜好項目。
+- 導覽項目：畫質設定、輸入方式（選單）、桌面模式的小型啟動台、模擬定位（模擬中換圖示）、聲音、截圖、旋轉（選單：四個方向、自動旋轉、強制所有 App 使用這個方向；虛擬顯示器只有「旋轉視窗方向」）、黑屏、電源。按鈕都有無障礙名稱（UI Automation 測試也靠它）。
+- 重建用「簽章」避免閃爍：App 清單與圖示載入、導覽狀態沒變就不重建（重建導覽按鈕會把開著的彈窗關掉）。
+
+### Mirror/Popovers.cs
+對應 `VideoSettingsPopover`、`SoundPopover`、`MiniLauncher`、`LockPasswordSheet`：
+- 畫質：省流量／一般／高畫質／自訂預設、影格率、解析度上限、位元率滑桿，套用後重啟連線。
+- 聲音：媒體音量滑桿（`cmd media_session volume --stream 3`，超過 120 變紅並出現警告）、一鍵靜音、從電腦播放／從手機播放（切換後重新連線，需要 Android 13）、鈴聲模式（依序嘗試 `cmd audio set-ringer-mode`、`service call audio 38`、鈴聲音量，每次都回頭確認）、請勿打擾。
+- 桌面模式的小型啟動台（搜尋＋圖示格）。
+- 解鎖密碼對話框：PIN／密碼或 3×3 圖形（`PatternPad`，Beta），存在 `SecretStore`。
+
+### Mirror/LockScreenHelper.cs
+對應 `LockScreenHelper.swift`：用 `dumpsys window` 的 keyguard 欄位判斷鎖定；解鎖流程：Windows Hello（`UserConsentVerifier`；沒設定 Hello 的電腦退回確認對話框）→ 喚醒 → 黑屏（只關面板）→ 上滑 → 輸入密碼或畫圖形（圖形範圍用 `uiautomator dump` 找 `LockPatternView`，找到過的快取，失敗就清掉重找；有鏡像連線直接送觸控，沒有就用手機端 `gesture`）→ 驗證。
+
+### Mirror/LocationSimulator.cs
+對應 `LocationSimulator.swift`：`LocationSimulator` 用 `cmd location providers` 的測試提供者（gps、network）套用／重送／移除；`LocationSimulation` 每 5 秒重送位置維持模擬（跟視窗開不開無關，只有「停止模擬」才結束）。`LocationSimulatorWindow` 用 WebView2 顯示 Leaflet＋OpenStreetMap（頁面與 Leaflet 解到 `%LOCALAPPDATA%\PhoneCentre\map`，用虛擬主機名稱 `map.phonecentre.local` 載入，OSM 圖磚才會帶 Referer；WebView2 的使用者資料放在 `%LOCALAPPDATA%\PhoneCentre\WebView2`），點地圖選位置，搜尋用 Nominatim。需要系統有 WebView2 執行階段（Windows 11 內建）。
+
+### Mirror/AudioPlayer.cs
+對應 `AudioPlayer.swift`：NAudio 的 WASAPI 共用模式（60 ms）播 48 kHz 雙聲道 s16le，`BufferedWaveProvider` 緩衝超過 200 ms 就清掉維持低延遲；`Volume` 靜音用。
+
+### Mirror/KeyMap.cs
+Windows 虛擬按鍵 → Android keycode（字母、數字、符號、Enter／Backspace／Delete／Tab／空白、Esc＝返回、方向鍵、Home／End／PageUp／PageDown／Insert、F1–F12、數字鍵盤），以及修飾鍵 → meta state；輸入法模式下哪些是「文字鍵」交給輸入法。
+
 ### MirrorWindow.cs
-左邊手機畫面（黑底，`Image`＋`WriteableBitmap`，`CompositionTarget.Rendering` 取最新幀），右邊 76 寬控制欄（`DesktopAcrylicBackdrop` 透出桌面）：
-- 狀態環（點一下降下通知中心）、現在用的 App 一塊盤子、其他已開啟＋喜好項目一塊盤子（分隔線後是還沒開的；執行中右邊有小圓點，最上層的拉長成短線）。
-- 導覽盤子：畫質、輸入方式、模擬定位、聲音（這四個尚未移植）、截圖（`screencap -p` 存到桌面）、旋轉選單、黑屏、電源；分隔線下是三星風格金剛三鍵（返回、主畫面、多工）。
-- 輸入：左鍵＝觸控（視窗座標以 Uniform 置中縮放換算成手機座標）、右鍵＝返回、中鍵＝主畫面、滾輪＝捲動、實體按鍵依按鍵位置送 Android keycode（字母、數字、方向、Enter、Esc＝返回…；文字輸入與輸入法尚未做）。
-- 第一次知道畫面大小時依比例調整視窗（高度不超過工作區 88%）。
-- 與 Mac 版相比尚未有：獨立 App 視窗、桌面模式、橫向底部橫條、鎖定偵測與解鎖、音訊。
+對應 `MirrorWindowController.swift`＋`MirrorContentView.swift`：視窗（Mica）與疊加層。
+- 版面：影像區（黑底）＋右側欄，橫向且內容高度未滿 608 時右側欄移到底部（高 64）。
+- 疊加訊息（毛玻璃底卡片）：手機已鎖定橫幅（主螢幕往下留 49 不擋手機狀態列；有存密碼顯示「用 Windows Hello 解鎖」，沒有顯示「儲存解鎖密碼…」；可關掉）、組字文字、App 已關閉（最後一幀＋Acrylic 霧化，卡片有圖示與「打開」「關閉視窗」）、連線中／變更中提示、畫面中央的提示訊息、截圖白閃（500 ms 淡出）。
+- 視窗大小：第一次收到影像依手機比例調整（高度不超過工作區 85%）、旋轉時保持較長邊；獨立視窗與桌面模式的虛擬顯示器依視窗大小建立，使用者調整過後不再反過來改視窗；記住位置與大小（`SettingsData.WindowFrames`），重新開啟時還原；關閉虛擬顯示器視窗前先 `SendAppsToBackgroundAsync`。
+- `WindowSubclass`（SetWindowSubclass）：最小大小（直向 364×636、橫向 636×364，含標題列；主螢幕鏡像看手機畫面比例、虛擬顯示器看視窗形狀）、主螢幕鏡像縮放時維持影像比例（`WM_SIZING`，右側欄寬或底部橫條高是固定的額外尺寸）、放開邊框時依新大小重建虛擬顯示器（`WM_EXITSIZEMOVE`）。
 
 ### Support/WindowManager.cs
-`OpenMirror`（同一台裝置只開一個）、`Launch`、`OpenApp`（目前退化成在主螢幕開啟）。
+對應 `WindowManager.swift`：以「裝置＋App／桌面／主螢幕」為鍵，同一個只開一個視窗。`OpenMirror`（主螢幕鏡像）、`OpenApp(device, package, at)`（獨立視窗，`at` 是視窗左上角的螢幕位置）、`OpenDesktop`、`Launch`（依啟動台的開啟方式）、`LaunchOnMainScreen`、`OpenLocation`、`OpenSettings`。
 
 ## Ui/
 - `MIcon`：Material 圖示控制項。

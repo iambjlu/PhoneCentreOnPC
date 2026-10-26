@@ -31,6 +31,9 @@ public sealed class ArrowScroll : Grid
         Update();
     }
 
+    /// <summary>換掉捲動區裡的內容</summary>
+    public void SetContent(UIElement content) { _sv.Content = content; Update(); }
+
     private double Offset => _horizontal ? _sv.HorizontalOffset : _sv.VerticalOffset;
     private double Extent => _horizontal ? _sv.ExtentWidth : _sv.ExtentHeight;
     private double Visible => _horizontal ? _sv.ViewportWidth : _sv.ViewportHeight;

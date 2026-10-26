@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml.Shapes;
 using PhoneCentre.Adb;
 using PhoneCentre.Pages;
 using PhoneCentre.Services;
+using PhoneCentre.Support;
 using PhoneCentre.Ui;
 using Windows.Graphics;
 
@@ -25,6 +26,7 @@ public sealed class MainWindow : Window
     private string? _selection;
     private DeviceTab _tab = DeviceTab.Overview;
     private string _contentKey = "";
+    private readonly WindowSubclass? _sub;
 
     private readonly StackPanel _deviceList = new() { Spacing = 2, Padding = new Thickness(8, 0, 8, 0) };
     private readonly Ellipse _serverDot = new() { Width = 7, Height = 7 };
@@ -44,7 +46,7 @@ public sealed class MainWindow : Window
         var size = new SizeInt32(Math.Min(1100, (int)(area.Width * 0.92)), Math.Min(880, (int)(area.Height * 0.92)));
         AppWindow.Resize(size);
         // 最小大小：側邊欄 236＋分頁列與標題要放得下，不然字會被切掉
-        if (AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter op) { op.PreferredMinimumWidth = 1000; op.PreferredMinimumHeight = 620; }
+        _sub = new WindowSubclass(this) { MinSize = () => (1000, 640) };
         AppWindow.Move(new PointInt32(area.X + (area.Width - size.Width) / 2, area.Y + (area.Height - size.Height) / 2));
 
         var root = new Grid();

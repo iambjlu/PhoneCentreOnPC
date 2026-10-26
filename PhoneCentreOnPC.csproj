@@ -27,6 +27,8 @@
     <EmbeddedResource Include="ThirdParty\scrcpy\scrcpy-server" LogicalName="scrcpy-server" />
     <EmbeddedResource Include="Resources\phonecentre-helper.jar" LogicalName="phonecentre-helper.jar" />
     <EmbeddedResource Include="Resources\AppIcon.ico" LogicalName="AppIcon.ico" />
+    <EmbeddedResource Include="Resources\leaflet\leaflet.js" LogicalName="leaflet.js" />
+    <EmbeddedResource Include="Resources\leaflet\leaflet.css" LogicalName="leaflet.css" />
     <EmbeddedResource Include="Fonts\*.ttf" LogicalName="font-%(Filename)%(Extension)" />
   </ItemGroup>
   <!-- 精簡 FFmpeg（H.264 解碼＋swscale，LGPL）：依平台內嵌，建置方式見 scripts/build-ffmpeg.sh -->
@@ -40,5 +42,6 @@
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.*" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.*" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.*" />
+    <PackageReference Include="NAudio.Wasapi" Version="2.2.1" />
   </ItemGroup>
 </Project>
