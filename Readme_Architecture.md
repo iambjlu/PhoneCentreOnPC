@@ -174,7 +174,7 @@ scrcpy 3.3.4 控制協定編碼（big-endian），與 Mac 版 Swift 逐位元組
 對應 `LocationSimulator.swift`：`LocationSimulator` 用 `cmd location providers` 的測試提供者（gps、network）套用／重送／移除；`LocationSimulation` 每 5 秒重送位置維持模擬（跟視窗開不開無關，只有「停止模擬」才結束）。`LocationSimulatorWindow` 用 WebView2 顯示 Leaflet＋OpenStreetMap（頁面與 Leaflet 解到 `%LOCALAPPDATA%\PhoneCentre\map`，用虛擬主機名稱 `map.phonecentre.local` 載入，OSM 圖磚才會帶 Referer；WebView2 的使用者資料放在 `%LOCALAPPDATA%\PhoneCentre\WebView2`），點地圖選位置，搜尋用 Nominatim。需要系統有 WebView2 執行階段（Windows 11 內建）。
 
 ### Mirror/AudioPlayer.cs
-對應 `AudioPlayer.swift`：NAudio 的 WASAPI 共用模式（60 ms）播 48 kHz 雙聲道 s16le，`BufferedWaveProvider` 緩衝超過 200 ms 就清掉維持低延遲；`Volume` 靜音用。
+對應 `AudioPlayer.swift`：NAudio 的 WASAPI 共用模式（60 ms）播 48 kHz 雙聲道 s16le，`BufferedWaveProvider` 緩衝超過 200 ms 就清掉維持低延遲；`Volume` 靜音用。 開啟輸出與第一次收到有聲資料時會寫進 log（方便確認音訊鏈路）。
 
 ### Mirror/KeyMap.cs
 Windows 虛擬按鍵 → Android keycode（字母、數字、符號、Enter／Backspace／Delete／Tab／空白、Esc＝返回、方向鍵、Home／End／PageUp／PageDown／Insert、F1–F12、數字鍵盤），以及修飾鍵 → meta state；輸入法模式下哪些是「文字鍵」交給輸入法。

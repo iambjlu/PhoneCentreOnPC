@@ -28,13 +28,19 @@ public sealed class AudioPlayer : IDisposable
             _out = new WasapiOut(AudioClientShareMode.Shared, 60);
             _out.Init(_volume);
             _out.Play();
+            Log.Write("音訊輸出已開始");
         }
         catch (Exception e) { Log.Write("開啟音訊輸出失敗 " + e.Message); _out = null; }
     }
 
+    private bool _heardSound;
+
     public void Push(byte[] pcm)
     {
         if (_disposed) return;
+        if (!_heardSound)
+            for (int i = 0; i + 1 < pcm.Length; i += 2)
+                if (Math.Abs((short)(pcm[i] | pcm[i + 1] << 8)) > 200) { _heardSound = true; Log.Write("收到有聲音的音訊資料"); break; }
         lock (_gate)
         {
             Start();
