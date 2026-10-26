@@ -18,6 +18,16 @@ public static class WindowManager
         w.Activate();
     }
 
+    private static SettingsWindow? _settings;
+
+    public static void OpenSettings(int page = 0)
+    {
+        if (_settings is not null) { _settings.Activate(); return; }
+        _settings = new SettingsWindow(page);
+        _settings.Closed += (_, _) => _settings = null;
+        _settings.Activate();
+    }
+
     /// <summary>依啟動台的「開啟方式」啟動 App（對應 WindowManager.launch）</summary>
     public static void Launch(Device device, string package)
     {

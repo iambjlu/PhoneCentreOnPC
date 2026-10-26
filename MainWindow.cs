@@ -37,11 +37,14 @@ public sealed class MainWindow : Window
     public MainWindow()
     {
         Title = "PhoneCentre";
+        PhoneCentre.Support.WindowIcon.Apply(this);
         SystemBackdrop = new MicaBackdrop();
         // 預設 1100x880，但不超過工作區的 92%
         var area = Microsoft.UI.Windowing.DisplayArea.GetFromWindowId(AppWindow.Id, Microsoft.UI.Windowing.DisplayAreaFallback.Primary).WorkArea;
         var size = new SizeInt32(Math.Min(1100, (int)(area.Width * 0.92)), Math.Min(880, (int)(area.Height * 0.92)));
         AppWindow.Resize(size);
+        // 最小大小：側邊欄 236＋分頁列與標題要放得下，不然字會被切掉
+        if (AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter op) { op.PreferredMinimumWidth = 1000; op.PreferredMinimumHeight = 620; }
         AppWindow.Move(new PointInt32(area.X + (area.Width - size.Width) / 2, area.Y + (area.Height - size.Height) / 2));
 
         var root = new Grid();
@@ -52,6 +55,12 @@ public sealed class MainWindow : Window
         var main = BuildMain();
         Grid.SetColumn(main, 1);
         root.Children.Add(main);
+        // Ctrl+, 開設定（VirtualKey 沒有逗號這個值，不能用 KeyboardAccelerator，改自己判斷 OEM 逗號 0xBC）
+        root.KeyDown += (_, e) =>
+        {
+            if ((int)e.Key == 0xBC && Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Control).HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down))
+            { WindowManager.OpenSettings(); e.Handled = true; }
+        };
         Content = root;
 
         _dm.Changed += Refresh;
@@ -86,8 +95,15 @@ public sealed class MainWindow : Window
         g.Children.Add(scroll);
 
         var bar = new StackPanel { Spacing = 2, Padding = new Thickness(12, 10, 12, 10) };
-        bar.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Children = { _serverDot, _serverText } });
+        var gear = new Button { Content = new MIcon("settings", 16), Padding = new Thickness(6), Background = null, BorderThickness = new Thickness(0), HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
+        ToolTipService.SetToolTip(gear, "設定（Ctrl+,）");
+        gear.Click += (_, _) => WindowManager.OpenSettings();
+        var statusRow = new Grid();
+        statusRow.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, VerticalAlignment = VerticalAlignment.Center, Children = { _serverDot, _serverText } });
+        statusRow.Children.Add(gear);
+        bar.Children.Add(statusRow);
         bar.Children.Add(_eventText);
+
         Grid.SetRow(bar, 2);
         g.Children.Add(bar);
         return g;

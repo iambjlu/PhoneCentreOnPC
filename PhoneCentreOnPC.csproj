@@ -12,6 +12,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Resources\AppIcon.ico</ApplicationIcon>
     <!-- 免安裝：不打包 MSIX，.NET 與 Windows App SDK 執行階段都內含 -->
     <WindowsPackageType>None</WindowsPackageType>
     <EnableMsixTooling>true</EnableMsixTooling>
@@ -25,6 +26,8 @@
   <ItemGroup>
     <EmbeddedResource Include="ThirdParty\scrcpy\scrcpy-server" LogicalName="scrcpy-server" />
     <EmbeddedResource Include="Resources\phonecentre-helper.jar" LogicalName="phonecentre-helper.jar" />
+    <EmbeddedResource Include="Resources\AppIcon.ico" LogicalName="AppIcon.ico" />
+    <EmbeddedResource Include="Fonts\*.ttf" LogicalName="font-%(Filename)%(Extension)" />
   </ItemGroup>
   <!-- 精簡 FFmpeg（H.264 解碼＋swscale，LGPL）：依平台內嵌，建置方式見 scripts/build-ffmpeg.sh -->
   <ItemGroup Condition="'$(Platform)'=='x64'">
@@ -36,5 +39,6 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.*" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.*" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.*" />
   </ItemGroup>
 </Project>

@@ -2,6 +2,7 @@
 param([string]$Exe, [string]$Arguments = '', [int]$Wait = 20, [string]$Phone = '')
 $adb = "$env:LOCALAPPDATA\PhoneCentre\platform-tools\adb.exe"
 if ($Phone) { & $adb connect $Phone *> $null }
+Get-Process PhoneCentre -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 Remove-Item "$env:LOCALAPPDATA\PhoneCentre\log.txt", "$env:USERPROFILE\shot.done" -ErrorAction SilentlyContinue
 $err = ''
 try { $p = if ($Arguments) { Start-Process $Exe -ArgumentList $Arguments -PassThru -ErrorAction Stop } else { Start-Process $Exe -PassThru -ErrorAction Stop } }

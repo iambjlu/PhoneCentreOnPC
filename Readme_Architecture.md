@@ -5,7 +5,7 @@ PhoneCentre 的 Windows 版（WinUI 3，C# / .NET 10 / Windows App SDK 1.8）。
 
 - 目標：使用者雙擊就能用的**單一 exe**（約 94 MB，內含 .NET 執行階段、Windows App SDK、精簡 FFmpeg、scrcpy-server、手機端輔助程式），免安裝。
 - 平台：Windows 10 1809 以上；x64（Intel／AMD）為主，ARM64 順便支援。
-- 還沒移植的功能：通知、簡訊、通話記錄、相機膠卷、設定視窗、遠端 PhoneCentre（分享）、桌面模式、獨立 App 視窗、模擬定位、聲音、畫質設定、輸入法、解鎖密碼、系統匣、無線裝置自動重連。介面上這些按鈕與分頁已經在，點了會顯示「尚未移植」。
+- 還沒移植的功能：通知、簡訊、通話記錄、相機膠卷、設定視窗、遠端 PhoneCentre（暫時不做）、桌面模式、獨立 App 視窗、模擬定位、聲音、畫質設定、輸入法、解鎖密碼、系統匣、無線裝置自動重連。介面上這些按鈕與分頁已經在，點了會顯示「尚未移植」。
 
 ## 目錄
 
@@ -37,6 +37,14 @@ scripts/                    部署、截圖、FFmpeg 編譯腳本
   - `scripts/shot.sh` ＋ `scripts/windows/shot.ps1`：在機台的桌面會話（互動式排程 `/it`）啟動 exe、截圖、收集 `log.txt`。參數寫進小腳本再執行，避開 `schtasks /tr` 的多層引號。
   - `scripts/build-ffmpeg.sh`：在 Mac 上用 llvm-mingw 交叉編譯精簡 FFmpeg。
 - 防火牆：adb.exe 第一次執行 Windows 會詢問是否允許存取網路；沒回應會被自動建立阻擋規則，之後每次都再問（阻擋優先於允許）。使用者第一次執行時也會遇到，之後要在介面上先提醒。
+
+## 字型與圖示
+
+- 字型：英數字用 Inter、中文用台北黑體 Beta（翰字鑄造，改編自思源黑體；兩者都是 SIL OFL 1.1）。`Fonts/` 是 Inter 的 Regular／Medium／SemiBold／Bold 與台北黑體的 Regular／Bold（台北黑體用 `scripts/subset-taipei-sans.py` 裁成 Big5＋GB2312＋注音＋假名＋標點，每檔約 4.9 MB，不然完整字型要 20 MB）。全域字型是 `Inter, Taipei Sans TC Beta`（`Fonts.Apply` 設 `ContentControlThemeFontFamily` 與 `TextBlock` 預設樣式）。
+  - WinUI 的文字走 DirectWrite 的系統字型集合，只認系統字型或 `ms-appx` 檔案；單一 exe 旁邊沒有字型檔，而用 `AddFontResourceEx(FR_PRIVATE)` 登記的程序專用字型 DirectWrite 看不到（實測過，Inter 和台北黑體都沒生效）。所以 `Fonts.Install` 在 `App` 建構一開始（XAML 第一次用到字型之前）把字型暫時安裝成「目前使用者」的字型（複製到 `%LOCALAPPDATA%\Microsoft\Windows\Fonts`、登記在 `HKCU\Software\Microsoft\Windows NT\CurrentVersion\Fonts`、`AddFontResource`＋廣播 `WM_FONTCHANGE`，不需要管理員權限），程式結束（`ProcessExit`）時移除；被強制結束的話字型會留著，下次啟動會覆蓋。
+  - `--fonttest` 開字型比對視窗（`FontTestWindow`）。
+- App 圖示：設計同 Mac 版（綠到藍漸層圓角方塊、白色手機、四個彩色 App 方塊），`scripts/make-icon.swift` 產生各尺寸 PNG（外框留白 3%，比 Mac 的 10% 小，工作列上才夠大）、`scripts/pack-ico.py` 打包成 `Resources/AppIcon.ico`（16–256 共 10 個尺寸）。`<ApplicationIcon>` 給 exe，內嵌一份給 `WindowIcon.Apply`（`AppWindow.SetIcon`）套到每個視窗與工作列按鈕。
+- Material 圖示：`scripts/gen-icons.py` 產生 `Ui/MaterialIconData.cs`（要新增圖示就把名稱加進 `NAMES`；`<circle>` 也會轉成路徑）。狀態環中央的 Wi-Fi 用 Material 的 `wifi`（淡的完整圖示打底）疊目前格數的亮圖示（`wifi_1_bar`／`wifi_2_bar`／`wifi`）。
 
 ## 視窗外觀
 
@@ -150,12 +158,27 @@ scrcpy 3.3.4 控制協定編碼（big-endian），與 Mac 版 Swift 逐位元組
 - `SegmentedBar`：分頁列（整條膠囊，選中的項目有較亮的膠囊底）。
 - `UiHelpers.cs`：顏色、`Text`、`Panel`、`AppIcon`、`RunningMark`、`NavButton`（樣式在 `App.xaml` 的 `NavButtonStyle`，48×34、滑過有底色）。
 
+## 設定
+
+### Settings/AppSettings.cs
+對應 `AppSettings.swift`：`SettingsData`（保持連線、記住無線裝置、工作列模式、啟動台開啟方式、鍵盤模式、畫質與每台裝置的畫質、音訊、剪貼簿、鏡像時黑屏、系統匣圖示、遠端開關、無線端點、遠端主機、快取上限與清除時機、Windows Hello 解鎖、手機資料收集與保存天數、各裝置喜好項目、密碼同步）。預設存 `%LOCALAPPDATA%\PhoneCentre\settings.json`；可選一個資料夾（例如 OneDrive）改存那裡，每 3 秒偵測其他電腦改過的檔案並重新載入。資料夾路徑與自訂 adb 路徑只存本機（`local.json`）。讀檔時缺少的欄位用預設值，舊設定檔也能讀。改設定用 `AppSettings.Update(d => …)`（自動存檔並觸發 `Changed`）。
+### Settings/SecretStore.cs
+對應鑰匙圈：密碼（手機解鎖密碼、分享密碼、遠端主機密碼）用 DPAPI（目前使用者）加密存在 `secrets.json`；開啟「密碼也存到這個資料夾」時另外以明碼寫進 `settings.json` 的 `Secrets`，另一台讀到後存回自己的 DPAPI。
+### Services/CacheManager.cs
+對應 `CacheManager.swift`：快取在 `Cache\<裝置鍵>\{icons,thumbs,files}`；清除時機（斷線立即／幾天沒連線／只依容量）與容量上限（LRU，取存取與寫入時間較晚的，因為 NTFS 常常不更新存取時間，刪到上限的 90%），每分鐘檢查一次；`last-seen.json` 記每台裝置最後連線時間。
+### Pages/SettingsWindow.cs
+設定視窗（一般、連線、鏡像、儲存四頁，頂端用 `SegmentedBar`；遠端那一頁暫時不做所以先拿掉）。用 `Ui/Form.cs` 的分組表單零件（標題＋圓角卡片、每列以分隔線隔開、`ToggleSwitch`／`ComboBox`／`Slider`／`NumberBox`）。`Ctrl+,` 或側邊欄底部的齒輪開啟；最小大小 640×520。`--settings=<頁號>` 直接開某一頁。
+- 一般：系統匣圖示、工作列模式（鏡像視窗／獨立 App 視窗：整個程式共用一個或每個視窗各自一個）、啟動台點 App 的開啟方式。
+- 連線：保持連線、記住無線裝置、記住的無線裝置清單（忘記）、目前使用的 adb、自訂路徑、下載／更新 Platform-Tools。
+- 鏡像：預設畫質（FPS、Bitrate、最大解析度）、鍵盤模式（實體按鍵／Windows 輸入法）、剪貼簿同步、音訊（傳到電腦、手機靜音）、鏡像時黑屏、Windows Hello 解鎖。
+- 儲存：設定檔位置、密碼同步、手機資料收集與各自的保存天數、快取用量與上限與清除時機、立即套用、清除全部。
+
 ## Support/ 與 Settings/
 - `AppIndex.cs`／`BopomofoTable.cs`：啟動台分組鍵。`BopomofoTable` 是在 Mac 上用 `mandarinToLatin → Latin-Bopomofo` 轉換為 U+4E00–U+9FFF 每個字預先算好的注音首碼表（20992 字元），讓中文 App 名稱的分組與 Mac 版完全一致（Windows 沒有等價的 API）。
 - `RemoteDrag.cs`：把手機檔案拖出到檔案總管（`SetDataProvider` 延遲提供，放開才 `adb pull`），檔案頁與相機膠卷共用。
 - `Shell.cs`：非同步執行外部程式（stdout／stderr 邊跑邊讀、逾時強制結束）、單引號跳脫。
 - `Assets.cs`：內嵌資源解出；`CacheDir.cs`：快取目錄；`Log.cs`：`%LOCALAPPDATA%\PhoneCentre\log.txt`；`DropHandler.cs`：拖放處理。
-- `AppSettings.cs`：`settings.json`（KeepAlive、自訂 adb 路徑、啟動台開啟方式、各裝置的喜好項目、是否收集簡訊／通知／通話記錄與各自的保存天數）。
+- `Fonts.cs`、`WindowIcon.cs`：字型安裝與視窗圖示（見上面「字型與圖示」）。
 
 ## 已知限制
 - x64 版用 Windows 內建解碼器沒有畫面（見 H264Decoder），所以走 FFmpeg 軟體解碼；舊的低壓雙核 CPU（例如 i5-4278U）可以跑，但延遲與 CPU 使用率還沒量測。

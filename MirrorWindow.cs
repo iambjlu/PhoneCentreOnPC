@@ -50,6 +50,7 @@ public sealed class MirrorWindow : Window
         _device = device;
         _catalog = DeviceManager.Shared.Catalog(device);
         Title = device.DisplayName;
+        PhoneCentre.Support.WindowIcon.Apply(this);
         SystemBackdrop = new DesktopAcrylicBackdrop();
         AppWindow.Resize(new SizeInt32(520, 1000));
 

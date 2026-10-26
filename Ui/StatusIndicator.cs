@@ -114,16 +114,18 @@ public sealed class StatusIndicator : UserControl
         ToolTipService.SetToolTip(this, s.Summary);
     }
 
+    /// <summary>Material 的 Wi-Fi 圖示：底下先放一個淡的完整圖示，上面再疊目前格數的亮圖示（1 格＝一個點、2 格＝點加一道弧、3 格以上＝完整）</summary>
     private void DrawWifi(double cx, double cy, int level)
     {
-        double u = _size * 0.46;
-        double ox = cx, oy = cy + u * 0.32;
-        int arcs = (int)Math.Ceiling(level * 3 / 4.0);
-        var dot = new Ellipse { Width = u * 0.2, Height = u * 0.2, Fill = White() };
-        Canvas.SetLeft(dot, ox - u * 0.1); Canvas.SetTop(dot, oy - u * 0.1);
-        _canvas.Children.Add(dot);
-        double[] radii = [0.42, 0.74, 1.06];
-        for (int i = 0; i < 3; i++)
-            _canvas.Children.Add(Arc(ox, oy, u * radii[i], 228, 312, White(i < arcs ? 1 : 0.28), u * 0.14));
+        double size = _size * 0.56;
+        double left = cx - size / 2, top = cy - size / 2 + _size * 0.02;
+        var dim = new MIcon("wifi", size) { Foreground = White(0.28) };
+        Canvas.SetLeft(dim, left); Canvas.SetTop(dim, top);
+        _canvas.Children.Add(dim);
+        string? bright = level switch { <= 0 => null, 1 => "wifi_1_bar", 2 => "wifi_2_bar", _ => "wifi" };
+        if (bright is null) return;
+        var on = new MIcon(bright, size) { Foreground = White() };
+        Canvas.SetLeft(on, left); Canvas.SetTop(on, top);
+        _canvas.Children.Add(on);
     }
 }

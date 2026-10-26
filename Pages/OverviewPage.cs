@@ -8,6 +8,7 @@ using PhoneCentre.Adb;
 using PhoneCentre.Services;
 using PhoneCentre.Settings;
 using PhoneCentre.Support;
+using PhoneCentre.Ui;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Storage;
 using Windows.Storage.Pickers;
@@ -186,11 +187,7 @@ public sealed class OverviewPage : UserControl
         if (packages.Count == 0 || _catalog is null) return;
         var items = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 16, Padding = new Thickness(0, 4, 0, 4) };
         foreach (var pkg in packages) items.Children.Add(AppItem(pkg, d));
-        var scroll = new ScrollViewer
-        {
-            Content = items, HorizontalScrollBarVisibility = ScrollBarVisibility.Hidden, HorizontalScrollMode = ScrollMode.Enabled,
-            VerticalScrollMode = ScrollMode.Disabled, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
-        };
+        var scroll = new ArrowScroll(items);
         var col = new StackPanel { Spacing = 8 };
         col.Children.Add(Ui.Ui.Text(title, 15, true, true));
         col.Children.Add(scroll);
@@ -200,14 +197,8 @@ public sealed class OverviewPage : UserControl
     private FrameworkElement AppItem(string pkg, Device d)
     {
         var catalog = _catalog!;
-        var label = Ui.Ui.Text(catalog.Label(pkg), 12);
-        label.Width = 72; label.TextAlignment = TextAlignment.Center;
-        var item = new StackPanel { Spacing = 5, Background = Ui.Ui.Hex(0x01000000) };
-        item.Children.Add(Ui.Ui.AppIcon(catalog, pkg, 52));
-        item.Children.Add(label);
-        item.Children.Add(Ui.Ui.RunningMark(catalog.Running.Contains(pkg), pkg == catalog.Foreground));
+        var item = new AppCell(catalog, pkg, catalog.Label(pkg), 52, 72);
         item.Tapped += (_, _) => WindowManager.Launch(d, pkg);
-
         // 選單順序與 App 列相同：強制停止、在獨立視窗開啟、（分隔線）喜好項目
         var menu = new MenuFlyout();
         var stop = new MenuFlyoutItem { Text = "強制停止" }; stop.Click += async (_, _) => await catalog.ForceStopAsync(pkg);

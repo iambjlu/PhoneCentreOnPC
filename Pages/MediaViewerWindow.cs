@@ -29,6 +29,7 @@ public sealed class MediaViewerWindow : Window
     {
         _device = device; _items = items.Where(i => !i.IsDir).ToList(); _current = current;
         Title = current.Name;
+        PhoneCentre.Support.WindowIcon.Apply(this);
         SystemBackdrop = new MicaBackdrop();
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1000, 760));
 

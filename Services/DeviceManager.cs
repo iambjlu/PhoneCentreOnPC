@@ -39,6 +39,13 @@ public sealed class DeviceManager
         _timer.Start();
     }
 
+    /// <summary>從記住的無線裝置清單移除，並中斷連線</summary>
+    public void Forget(Settings.SavedEndpoint ep)
+    {
+        Settings.AppSettings.Update(d => d.SavedEndpoints.RemoveAll(x => x.Address == ep.Address));
+        _ = AdbClient.DisconnectAsync(ep.Address);
+    }
+
     public Device? Device(string id) => _devices.FirstOrDefault(d => d.Id == id);
 
     public AppCatalog Catalog(Device device)
@@ -87,7 +94,7 @@ public sealed class DeviceManager
 
         foreach (var d in all) d.Info = _infoCache.GetValueOrDefault(d.Id);
         bool changed = before != ServerStatus || !SameList(all, _devices);
-        if (changed) _devices = all;
+        if (changed) { _devices = all; CacheManager.Shared.DevicesChanged(all); }
 
         foreach (var d in all.Where(d => d.IsOnline && !_infoCache.ContainsKey(d.Id) && !_infoLoading.Contains(d.Id)))
             LoadInfo(d);
