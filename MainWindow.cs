@@ -226,6 +226,7 @@ public sealed class MainWindow : Window
             DeviceTab.Overview => new OverviewPage(d.Id),
             DeviceTab.Launchpad => new LaunchpadPage(d.Id),
             DeviceTab.Files => new FilesPage(d.Id),
+            DeviceTab.Photos => new PhotosPage(d.Id),
             _ => Message(Tabs.First(t => t.Tab == _tab).Title, "這個分頁尚未移植到 Windows 版。"),
         };
     }

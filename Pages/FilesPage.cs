@@ -400,25 +400,6 @@ public sealed class FilesPage : UserControl
     {
         var items = e.Items.OfType<FrameworkElement>().Select(x => x.Tag).OfType<RemoteFile>().ToList();
         if (items.Count == 0) { e.Cancel = true; return; }
-        var fs = Fs;
-        e.Data.RequestedOperation = DataPackageOperation.Copy;
-        e.Data.SetDataProvider(StandardDataFormats.StorageItems, async request =>
-        {
-            var deferral = request.GetDeferral();
-            try
-            {
-                var result = new List<IStorageItem>();
-                foreach (var f in items)
-                {
-                    var tmp = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "PhoneCentre-drag-" + Guid.NewGuid().ToString("N"));
-                    Directory.CreateDirectory(tmp);
-                    var dest = System.IO.Path.Combine(tmp, f.Name);
-                    await Device.Client.PullAsync(f.Path, dest);
-                    result.Add(f.IsDir ? await StorageFolder.GetFolderFromPathAsync(dest) : await StorageFile.GetFileFromPathAsync(dest));
-                }
-                request.SetData(result);
-            }
-            finally { deferral.Complete(); }
-        });
+        RemoteDrag.Provide(e.Data, items, Device);
     }
 }

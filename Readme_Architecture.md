@@ -87,6 +87,9 @@ scrcpy 3.3.4 控制協定編碼（big-endian），與 Mac 版 Swift 逐位元組
 ### DeviceStatus.cs
 對應 `DeviceStatus.swift`：一次 shell 取得電池（狀態碼區分充電中／已插電未充電）、預設網路（Wi-Fi 或 MOBILE[LTE]→4G/5G）、telephony.registry 的每個卡槽（電信、世代、dBm、三星 SignalBarInfo 格數、緊急通話、無線電關閉）、Wi-Fi RSSI／SSID／IP、電池循環與容量、生產日期、旋轉設定。`DeviceStatusStore` 每 10 秒更新所有在線裝置。
 
+### ThumbnailLoader.cs
+對應 `ThumbnailLoader`：格子出現才排隊，80 ms 內的請求合併成一批（24 張）交給手機端 `thumbs 256`，只傳小圖不傳原檔；結果存到 `Cache\<裝置鍵>\thumbs`（鍵含路徑、大小、修改時間與縮圖版本 v2）。判斷佇列是否空與清除執行旗標要在 UI 執行緒一起做。
+
 ### RemoteFS.cs
 對應 `RemoteFiles.swift`：`RemoteFile`（路徑、名稱、是否資料夾、大小、修改時間；種類名稱、圖示名稱、是否圖片／影片）、`RemoteFS`（`stat -L -c '%F|%s|%Y|%n'` 列目錄與遞迴列出、mkdir、`mv -n`、`rm -rf`＋媒體掃描、下載到快取並以路徑雜湊分資料夾）、`FileSize.Format`（十進位，像 macOS 的 ByteCountFormatter）。
 
@@ -104,6 +107,9 @@ scrcpy 3.3.4 控制協定編碼（big-endian），與 Mac 版 Swift 逐位元組
 
 ### FilesPage.cs
 對應 `FileBrowserView.swift`：左邊「位置」（內部儲存空間、下載、相機、圖片、文件、音樂、影片、暫存、根目錄）；上方上一頁／下一頁／上一層、可點的路徑列、顯示隱藏檔、新增資料夾、上傳、下載、重新整理；表格欄位名稱／修改日期／大小／種類，點標題排序（資料夾一律在前面，名稱用 `NameComparer`）；底部「N 個項目」與狀態。雙擊開啟（資料夾進入；檔案先下載到快取再用預設程式開啟）、右鍵（打開、重新命名、拷貝路徑、下載、刪除；空白處：新增資料夾、上傳）、Delete 鍵刪除（確認對話框）。拖檔進來上傳（資料夾也行）；拖出到檔案總管時用 `SetDataProvider` 延遲提供，放開才 `adb pull` 到暫存。載入有序號，切換資料夾時舊的結果會被丟掉。沒有 Quick Look（Windows 沒有對應物），改成直接開啟。圖示用 Material（檔案類型對應在 `RemoteFile.IconName`）。
+
+### PhotosPage.cs
+對應 `CameraRollView.swift`：上方相簿下拉（所有照片＝DCIM 底下遞迴、相機、DCIM 與 Pictures 的各資料夾）、全部／照片／影片、項目數、已選取數與匯出／刪除、縮放滑桿（80–280，`UniformGridLayout` 的格子大小）、重新整理。格子是 `PhotoCell`（縮圖、影片的播放標記、選取框與勾勾），用 `ItemsRepeater`＋`PhotoCellFactory`（回收格子）虛擬化；`ElementPrepared`／`ElementClearing` 對應 Mac 版的 onAppear／onDisappear，通知 `ThumbnailLoader` 該排隊或取消。選取：Ctrl 點選加入或取消、Shift 選取範圍、Ctrl＋A 全選、Delete 刪除；右鍵（打開、匯出、刪除）；拖檔進來匯入（「所有照片」匯入到 DCIM/Camera）；拖出到檔案總管用 `RemoteDrag`。匯出遇到同名檔案會加編號。雙擊開 `MediaViewerWindow`（照片顯示原圖、影片用 `MediaPlayerElement`，左右鍵切換，Esc 關閉）。
 
 ### AdbSetupView.cs
 找不到 adb 時的一鍵下載安裝。
@@ -135,6 +141,7 @@ scrcpy 3.3.4 控制協定編碼（big-endian），與 Mac 版 Swift 逐位元組
 
 ## Support/ 與 Settings/
 - `AppIndex.cs`／`BopomofoTable.cs`：啟動台分組鍵。`BopomofoTable` 是在 Mac 上用 `mandarinToLatin → Latin-Bopomofo` 轉換為 U+4E00–U+9FFF 每個字預先算好的注音首碼表（20992 字元），讓中文 App 名稱的分組與 Mac 版完全一致（Windows 沒有等價的 API）。
+- `RemoteDrag.cs`：把手機檔案拖出到檔案總管（`SetDataProvider` 延遲提供，放開才 `adb pull`），檔案頁與相機膠卷共用。
 - `Shell.cs`：非同步執行外部程式（stdout／stderr 邊跑邊讀、逾時強制結束）、單引號跳脫。
 - `Assets.cs`：內嵌資源解出；`CacheDir.cs`：快取目錄；`Log.cs`：`%LOCALAPPDATA%\PhoneCentre\log.txt`；`DropHandler.cs`：拖放處理。
 - `AppSettings.cs`：`settings.json`（目前只有 KeepAlive、自訂 adb 路徑、各裝置的喜好項目）。
