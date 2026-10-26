@@ -34,6 +34,7 @@ scripts/                    部署、截圖、FFmpeg 編譯腳本
 - 內嵌資源：`scrcpy-server`、`phonecentre-helper.jar`、依平台的 FFmpeg DLL 都是 `EmbeddedResource`（`LogicalName` 為檔名）。`Assets.Extract` 第一次使用時解到 `%LOCALAPPDATA%\PhoneCentre\assets`（大小相同就沿用），因為 `adb push` 與 `LoadLibrary` 都需要實體檔案。
 - 日常流程（Mac 上寫、ARM 機台編譯、Intel 機台驗證）見 `CLAUDE.md`，腳本：
   - `scripts/deploy.sh`：打包原始碼送到 ARM 機台，用排程工作執行 `dotnet publish`（SSH 長時間占線容易斷，所以用排程工作加完成旗標檔輪詢）。
+  - `scripts/push.sh`：把建好的 x64 exe 放到兩台 Windows 桌面的 `PhoneCentre-Windows\x64`。
   - `scripts/shot.sh` ＋ `scripts/windows/shot.ps1`：在機台的桌面會話（互動式排程 `/it`）啟動 exe、截圖、收集 `log.txt`。參數寫進小腳本再執行，避開 `schtasks /tr` 的多層引號。
   - `scripts/build-ffmpeg.sh`：在 Mac 上用 llvm-mingw 交叉編譯精簡 FFmpeg。
 - 防火牆：adb.exe 第一次執行 Windows 會詢問是否允許存取網路；沒回應會被自動建立阻擋規則，之後每次都再問（阻擋優先於允許）。使用者第一次執行時也會遇到，之後要在介面上先提醒。
