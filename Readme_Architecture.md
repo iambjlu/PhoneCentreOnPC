@@ -5,7 +5,7 @@ PhoneCentre 的 Windows 版（WinUI 3，C# / .NET 10 / Windows App SDK 1.8）。
 
 - 目標：使用者雙擊就能用的**單一 exe**（約 94 MB，內含 .NET 執行階段、Windows App SDK、精簡 FFmpeg、scrcpy-server、手機端輔助程式），免安裝。
 - 平台：Windows 10 1809 以上；x64（Intel／AMD）為主，ARM64 順便支援。
-- 還沒移植的功能：檔案、通知、簡訊、通話記錄、相機膠卷、設定視窗、遠端 PhoneCentre（分享）、桌面模式、獨立 App 視窗、模擬定位、聲音、畫質設定、輸入法、解鎖密碼、系統匣、無線裝置自動重連。介面上這些按鈕與分頁已經在，點了會顯示「尚未移植」。
+- 還沒移植的功能：通知、簡訊、通話記錄、相機膠卷、設定視窗、遠端 PhoneCentre（分享）、桌面模式、獨立 App 視窗、模擬定位、聲音、畫質設定、輸入法、解鎖密碼、系統匣、無線裝置自動重連。介面上這些按鈕與分頁已經在，點了會顯示「尚未移植」。
 
 ## 目錄
 
@@ -87,6 +87,9 @@ scrcpy 3.3.4 控制協定編碼（big-endian），與 Mac 版 Swift 逐位元組
 ### DeviceStatus.cs
 對應 `DeviceStatus.swift`：一次 shell 取得電池（狀態碼區分充電中／已插電未充電）、預設網路（Wi-Fi 或 MOBILE[LTE]→4G/5G）、telephony.registry 的每個卡槽（電信、世代、dBm、三星 SignalBarInfo 格數、緊急通話、無線電關閉）、Wi-Fi RSSI／SSID／IP、電池循環與容量、生產日期、旋轉設定。`DeviceStatusStore` 每 10 秒更新所有在線裝置。
 
+### RemoteFS.cs
+對應 `RemoteFiles.swift`：`RemoteFile`（路徑、名稱、是否資料夾、大小、修改時間；種類名稱、圖示名稱、是否圖片／影片）、`RemoteFS`（`stat -L -c '%F|%s|%Y|%n'` 列目錄與遞迴列出、mkdir、`mv -n`、`rm -rf`＋媒體掃描、下載到快取並以路徑雜湊分資料夾）、`FileSize.Format`（十進位，像 macOS 的 ByteCountFormatter）。
+
 ### AppCatalog.cs
 對應 `AppCatalog.swift`：App 清單與圖示（輔助程式 `list`／`icons`，PNG 存在 `%LOCALAPPDATA%\PhoneCentre\Cache\<裝置鍵>\icons`）、已開啟／最近／目前在最上層的 App（解析 `dumpsys activity recents`、`ps -A`、`topResumedActivity`，找不到套件時用 affinity 前綴比對）、啟動、強制停止（連同 task 一起移除）、`BarOrder`／`Sections` 排序（App 列、總覽共用）。
 
@@ -98,6 +101,9 @@ scrcpy 3.3.4 控制協定編碼（big-endian），與 Mac 版 Swift 逐位元組
 ### LaunchpadPage.cs
 對應 `LaunchpadView.swift`：上方「開啟方式」下拉（獨立視窗／手機主螢幕，存在設定）、膠囊搜尋、重新整理；沒搜尋時依序是喜好項目、已開啟（單排，用 `ArrowScroll`，放不下時兩端出現箭頭）、「所有 App」依 `AppIndex` 分組（A–Z → ㄅ–ㄦ → #，組內用 `NameComparer`）的格狀排列（`ItemsRepeater`＋`UniformGridLayout`，圖示 64、格寬 96）；搜尋時合併成單一格。右邊的索引列可點或拖曳跳到該組。右鍵選單：強制停止、在獨立視窗開啟、在手機主螢幕開啟、App 資訊、拷貝套件名稱、解除安裝（確認對話框）、喜好項目。
 `catalog.Changed` 時用「簽章」判斷：App 清單與分區沒變就只對每個 `AppCell` 呼叫 `Refresh`（更新圖示與執行中標記），有變才重建並還原捲動位置，所以每 3 秒的狀態更新不會讓捲動位置跑掉。
+
+### FilesPage.cs
+對應 `FileBrowserView.swift`：左邊「位置」（內部儲存空間、下載、相機、圖片、文件、音樂、影片、暫存、根目錄）；上方上一頁／下一頁／上一層、可點的路徑列、顯示隱藏檔、新增資料夾、上傳、下載、重新整理；表格欄位名稱／修改日期／大小／種類，點標題排序（資料夾一律在前面，名稱用 `NameComparer`）；底部「N 個項目」與狀態。雙擊開啟（資料夾進入；檔案先下載到快取再用預設程式開啟）、右鍵（打開、重新命名、拷貝路徑、下載、刪除；空白處：新增資料夾、上傳）、Delete 鍵刪除（確認對話框）。拖檔進來上傳（資料夾也行）；拖出到檔案總管時用 `SetDataProvider` 延遲提供，放開才 `adb pull` 到暫存。載入有序號，切換資料夾時舊的結果會被丟掉。沒有 Quick Look（Windows 沒有對應物），改成直接開啟。圖示用 Material（檔案類型對應在 `RemoteFile.IconName`）。
 
 ### AdbSetupView.cs
 找不到 adb 時的一鍵下載安裝。
