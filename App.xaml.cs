@@ -34,6 +34,7 @@ public partial class App : Application
 
     public App()
     {
+        TaskbarGroup.Init();
         Fonts.Install();   // 要在 XAML 第一次用到字型之前
         Log.Write("App 建構");
         try { InitializeComponent(); } catch (Exception e) { Log.Write("App.InitializeComponent 例外 " + e); throw; }

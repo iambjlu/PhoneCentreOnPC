@@ -41,6 +41,7 @@ public sealed class MirrorWindow : Window
         Model = model;
         Title = model.Title;
         PhoneCentre.Support.WindowIcon.Apply(this);
+        PhoneCentre.Support.TaskbarGroup.Apply(this, model.Device.Id + "#" + (model.AppPackage ?? (model.DesktopMode ? "@desktop" : "@main")), !model.IsVirtualDisplay);
         SystemBackdrop = new MicaBackdrop();
         _view = new MirrorView(model, this);
         if (model.IsVirtualDisplay)
