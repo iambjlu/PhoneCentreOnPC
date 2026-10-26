@@ -58,7 +58,7 @@ public sealed class AppCatalog
                 foreach (var l in o2.Split('\n').Select(x => x.Trim()).Where(x => x.Contains('/')).Select(x => x.Split('/')[0]).Distinct())
                     list.Add(new AppEntry(l, l.Split('.').Last(), false));
             }
-            Apps = [.. list.OrderBy(a => a.Label, StringComparer.CurrentCulture)];
+            Apps = [.. list.OrderBy(a => a.Label, AppIndex.NameComparer)];
             LoadIcons(Apps.Select(a => a.Package));
         }
         catch (Exception e) { Log.Write("App 清單載入失敗 " + e.Message); }
@@ -233,6 +233,16 @@ public sealed class AppCatalog
     }
 
     /// <summary>強制停止，並把它在最近使用裡的 task 一起移除（常駐程序 force-stop 不會結束，task 也不會消失）</summary>
+    public async Task<string> UninstallAsync(string pkg)
+    {
+        var r = (await SafeShell(Device, $"pm uninstall --user 0 {pkg}")).Trim();
+        await ReloadAsync();
+        return r;
+    }
+
+    public async Task OpenAppInfoAsync(string pkg) =>
+        await SafeShell(Device, $"am start -a android.settings.APPLICATION_DETAILS_SETTINGS -d package:{pkg}");
+
     public async Task ForceStopAsync(string pkg)
     {
         await SafeShell(Device, $"am force-stop {pkg}");

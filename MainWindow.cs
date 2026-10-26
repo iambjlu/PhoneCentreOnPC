@@ -31,7 +31,7 @@ public sealed class MainWindow : Window
     private readonly TextBlock _serverText = Ui.Ui.Text("", 12), _eventText = Ui.Ui.Text("", 11, true);
     private readonly TextBlock _title = Ui.Ui.Text("", 16, false, true), _subtitle = Ui.Ui.Text("", 12, true);
     private readonly ContentControl _host = new() { HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch };
-    private readonly SelectorBar _tabBar = new();
+    private SegmentedBar _tabBar = null!;
     private readonly Grid _toolbar = new();
 
     public MainWindow()
@@ -105,12 +105,8 @@ public sealed class MainWindow : Window
         _toolbar.Padding = new Thickness(20, 0, 20, 0);
         var titles = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Children = { _title, _subtitle } };
         _toolbar.Children.Add(titles);
-        foreach (var (tab, title) in Tabs) _tabBar.Items.Add(new SelectorBarItem { Text = title, Tag = tab });
-        _tabBar.SelectedItem = _tabBar.Items[0];
-        _tabBar.SelectionChanged += (s, _) =>
-        {
-            if (s.SelectedItem?.Tag is DeviceTab t && t != _tab) { _tab = t; UpdateContent(); }
-        };
+        _tabBar = new SegmentedBar(Tabs.Select(t => t.Title));
+        _tabBar.SelectionChanged += i => { if (Tabs[i].Tab != _tab) { _tab = Tabs[i].Tab; UpdateContent(); } };
         Grid.SetColumn(_tabBar, 1);
         _tabBar.VerticalAlignment = VerticalAlignment.Center;
         _toolbar.Children.Add(_tabBar);
@@ -119,6 +115,14 @@ public sealed class MainWindow : Window
         Grid.SetRow(_host, 1);
         g.Children.Add(_host);
         return g;
+    }
+
+    /// <summary>切換分頁（測試用的 --tab 參數也走這裡）</summary>
+    public void SelectTab(DeviceTab tab)
+    {
+        _tab = tab;
+        _tabBar.Selected = Array.FindIndex(Tabs, t => t.Tab == tab);
+        UpdateContent();
     }
 
     // MARK: 更新
@@ -220,6 +224,7 @@ public sealed class MainWindow : Window
         else _host.Content = _tab switch
         {
             DeviceTab.Overview => new OverviewPage(d.Id),
+            DeviceTab.Launchpad => new LaunchpadPage(d.Id),
             _ => Message(Tabs.First(t => t.Tab == _tab).Title, "這個分頁尚未移植到 Windows 版。"),
         };
     }

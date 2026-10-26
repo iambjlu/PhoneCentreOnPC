@@ -26,6 +26,10 @@ public partial class App : Application
         DeviceManager.Shared.Start();
         DeviceStatusStore.Shared.Start();
 
+        // 測試用：--tab=launchpad 等
+        var tabArg = Environment.GetCommandLineArgs().FirstOrDefault(a => a.StartsWith("--tab="))?["--tab=".Length..];
+        if (tabArg is not null && Enum.TryParse<DeviceTab>(tabArg, true, out var tab)) MainWindow.SelectTab(tab);
+
         // 測試用：--mirror 在第一台在線裝置出現後自動開鏡像視窗
         if (Environment.GetCommandLineArgs().Contains("--mirror"))
         {

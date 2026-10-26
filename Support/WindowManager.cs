@@ -1,5 +1,6 @@
 using PhoneCentre.Adb;
 using PhoneCentre.Services;
+using PhoneCentre.Settings;
 
 namespace PhoneCentre;
 
@@ -17,13 +18,21 @@ public static class WindowManager
         w.Activate();
     }
 
-    /// <summary>在手機主螢幕開啟 App（有鏡像視窗就透過它送，沒有就直接用 adb）</summary>
+    /// <summary>依啟動台的「開啟方式」啟動 App（對應 WindowManager.launch）</summary>
     public static void Launch(Device device, string package)
     {
-        if (Mirrors.TryGetValue(device.Id, out var w)) { w.Launch(package); return; }
+        if (AppSettings.LaunchTarget == "SeparateWindow") OpenApp(device, package);
+        else LaunchOnMainScreen(device, package);
+    }
+
+    /// <summary>在手機主螢幕開啟 App：有鏡像視窗就透過它送，沒有就用 adb 開並順便開鏡像視窗</summary>
+    public static void LaunchOnMainScreen(Device device, string package)
+    {
+        if (Mirrors.TryGetValue(device.Id, out var w)) { w.Launch(package); w.Activate(); return; }
         _ = DeviceManager.Shared.Catalog(device).LaunchAsync(package);
+        OpenMirror(device);
     }
 
     /// <summary>目前還沒有獨立視窗（虛擬顯示器）：先在主螢幕開啟</summary>
-    public static void OpenApp(Device device, string package) => Launch(device, package);
+    public static void OpenApp(Device device, string package) => LaunchOnMainScreen(device, package);
 }

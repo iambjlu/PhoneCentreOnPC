@@ -5,7 +5,7 @@ PhoneCentre 的 Windows 版（WinUI 3，C# / .NET 10 / Windows App SDK 1.8）。
 
 - 目標：使用者雙擊就能用的**單一 exe**（約 94 MB，內含 .NET 執行階段、Windows App SDK、精簡 FFmpeg、scrcpy-server、手機端輔助程式），免安裝。
 - 平台：Windows 10 1809 以上；x64（Intel／AMD）為主，ARM64 順便支援。
-- 還沒移植的功能：啟動台、檔案、通知、簡訊、通話記錄、相機膠卷、設定視窗、遠端 PhoneCentre（分享）、桌面模式、獨立 App 視窗、模擬定位、聲音、畫質設定、輸入法、解鎖密碼、系統匣、無線裝置自動重連。介面上這些按鈕與分頁已經在，點了會顯示「尚未移植」。
+- 還沒移植的功能：檔案、通知、簡訊、通話記錄、相機膠卷、設定視窗、遠端 PhoneCentre（分享）、桌面模式、獨立 App 視窗、模擬定位、聲音、畫質設定、輸入法、解鎖密碼、系統匣、無線裝置自動重連。介面上這些按鈕與分頁已經在，點了會顯示「尚未移植」。
 
 ## 目錄
 
@@ -95,13 +95,17 @@ scrcpy 3.3.4 控制協定編碼（big-endian），與 Mac 版 Swift 逐位元組
 ### OverviewPage.cs
 對應 `DeviceOverview.swift`：標題與狀態環（點一下開鏡像）、喜好項目／已開啟（右鍵：強制停止、在獨立視窗開啟、喜好項目）、五個大按鈕（鏡像畫面、桌面模式、安裝 APK、解鎖密碼、重新啟動）、裝置資訊（讀到之前只轉圈圈）、虛線拖放區（APK 安裝、照片影片存相機膠卷、其他存下載）。各區塊獨立重畫，避免整頁重建把捲動位置洗掉。
 
+### LaunchpadPage.cs
+對應 `LaunchpadView.swift`：上方「開啟方式」下拉（獨立視窗／手機主螢幕，存在設定）、膠囊搜尋、重新整理；沒搜尋時依序是喜好項目、已開啟（單排，用 `ArrowScroll`，放不下時兩端出現箭頭）、「所有 App」依 `AppIndex` 分組（A–Z → ㄅ–ㄦ → #，組內用 `NameComparer`）的格狀排列（`ItemsRepeater`＋`UniformGridLayout`，圖示 64、格寬 96）；搜尋時合併成單一格。右邊的索引列可點或拖曳跳到該組。右鍵選單：強制停止、在獨立視窗開啟、在手機主螢幕開啟、App 資訊、拷貝套件名稱、解除安裝（確認對話框）、喜好項目。
+`catalog.Changed` 時用「簽章」判斷：App 清單與分區沒變就只對每個 `AppCell` 呼叫 `Refresh`（更新圖示與執行中標記），有變才重建並還原捲動位置，所以每 3 秒的狀態更新不會讓捲動位置跑掉。
+
 ### AdbSetupView.cs
 找不到 adb 時的一鍵下載安裝。
 
 ## 視窗
 
 ### MainWindow.cs
-左邊 236 寬的裝置側邊欄（連線方式圖示、名稱、連線資訊、Android 版本、狀態環；底部 adb server 狀態與最近事件；+ 加入無線裝置），右邊是標題加 `SelectorBar` 分頁列（總覽／啟動台／檔案／通知／簡訊／通話記錄／相機膠卷）與內容。目前只有總覽有內容。預設大小 1100×880，但不超過工作區的 92% 並置中。
+左邊 236 寬的裝置側邊欄（連線方式圖示、名稱、連線資訊、Android 版本、狀態環；底部 adb server 狀態與最近事件；+ 加入無線裝置），右邊是標題加 `SelectorBar` 分頁列（總覽／啟動台／檔案／通知／簡訊／通話記錄／相機膠卷）與內容。目前總覽與啟動台有內容。分頁列是 `SegmentedBar`。測試參數 `--tab=<Launchpad|Files|…>` 直接切到某一頁。預設大小 1100×880，但不超過工作區的 92% 並置中。
 
 ### MirrorWindow.cs
 左邊手機畫面（黑底，`Image`＋`WriteableBitmap`，`CompositionTarget.Rendering` 取最新幀），右邊 76 寬控制欄（`DesktopAcrylicBackdrop` 透出桌面）：
@@ -118,9 +122,13 @@ scrcpy 3.3.4 控制協定編碼（big-endian），與 Mac 版 Swift 逐位元組
 - `MIcon`：Material 圖示控制項。
 - `SamsungIcon`：One UI 的返回「<」、主畫面「圓角方形」、多工「|||」與強制停止（六角形加叉），照 Mac 版 `SamsungNavIcon` 的尺寸與線寬。
 - `StatusIndicator`：外環＝電池（左右兩段 145°–232°、308°–395°，充電綠色、≤20% 紅色，電量數字壓在環頂端缺口），中間 Wi-Fi（依格數）或 4G/5G，下方 4 個訊號點（同一個圓上、角度間隔 22°）；沒讀到狀態時轉圈圈。
+- `AppCell`：App 圖示格（圖示、名稱、執行中小圓點／最上層的短線），`Refresh` 原地更新。
+- `ArrowScroll`：捲動區，放不下時在可捲動的那一端出現小箭頭，按下去捲動一頁（對應 `ArrowScroll.swift`）。
+- `SegmentedBar`：分頁列（整條膠囊，選中的項目有較亮的膠囊底）。
 - `UiHelpers.cs`：顏色、`Text`、`Panel`、`AppIcon`、`RunningMark`、`NavButton`（樣式在 `App.xaml` 的 `NavButtonStyle`，48×34、滑過有底色）。
 
 ## Support/ 與 Settings/
+- `AppIndex.cs`／`BopomofoTable.cs`：啟動台分組鍵。`BopomofoTable` 是在 Mac 上用 `mandarinToLatin → Latin-Bopomofo` 轉換為 U+4E00–U+9FFF 每個字預先算好的注音首碼表（20992 字元），讓中文 App 名稱的分組與 Mac 版完全一致（Windows 沒有等價的 API）。
 - `Shell.cs`：非同步執行外部程式（stdout／stderr 邊跑邊讀、逾時強制結束）、單引號跳脫。
 - `Assets.cs`：內嵌資源解出；`CacheDir.cs`：快取目錄；`Log.cs`：`%LOCALAPPDATA%\PhoneCentre\log.txt`；`DropHandler.cs`：拖放處理。
 - `AppSettings.cs`：`settings.json`（目前只有 KeepAlive、自訂 adb 路徑、各裝置的喜好項目）。

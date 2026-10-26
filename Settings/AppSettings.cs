@@ -10,6 +10,8 @@ public static class AppSettings
     {
         public bool KeepAlive { get; set; } = true;
         public string CustomAdbPath { get; set; } = "";
+        /// <summary>啟動台點 App 的開啟方式：SeparateWindow（獨立視窗）／MainScreen（手機主螢幕）</summary>
+        public string LaunchTarget { get; set; } = "SeparateWindow";
         /// <summary>依裝置鍵釘選的 App（喜好項目）</summary>
         public Dictionary<string, List<string>> Pinned { get; set; } = new();
     }
@@ -34,6 +36,12 @@ public static class AppSettings
     }
 
     public static bool KeepAlive => _data.KeepAlive;
+
+    public static string LaunchTarget
+    {
+        get => _data.LaunchTarget;
+        set { _data.LaunchTarget = value; Save(); }
+    }
 
     public static string CustomAdbPath
     {
