@@ -86,10 +86,10 @@ internal sealed class SideColumn : UserControl
         top.Children.Add(_othersPanel);
         _area.Children.Add(top);
 
-        // 獨立視窗：在欄位正中間顯示目前的 App
-        _appWindowPanel.VerticalAlignment = VerticalAlignment.Center;
+        // 獨立視窗：目前的 App 放在欄位上方（置中會在視窗不夠高時壓到下面的導覽項目）
+        _appWindowPanel.VerticalAlignment = VerticalAlignment.Top;
         _area.Children.Add(Ui.Ui.Panel(_appWindowPanel));
-        ((FrameworkElement)_area.Children[^1]).VerticalAlignment = VerticalAlignment.Center;
+        ((FrameworkElement)_area.Children[^1]).VerticalAlignment = VerticalAlignment.Top;
         _area.Children[^1].Visibility = Visibility.Visible;
 
         // 導覽列：導覽項目在上，金剛三鍵（返回、主畫面、多工）固定在最下面
