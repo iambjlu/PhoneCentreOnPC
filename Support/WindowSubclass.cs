@@ -33,6 +33,8 @@ public sealed class WindowSubclass : IDisposable
     public Func<(double Width, double Height)?>? MinSize { get; set; }
     /// <summary>縮放時要維持的「客戶區」長寬比（寬/高）與固定多出來的客戶區寬、高（DIP，例如右側欄寬度）。回傳 null＝自由縮放</summary>
     public Func<(double Aspect, double ExtraWidth, double ExtraHeight)?>? KeepAspect { get; set; }
+    /// <summary>攔截任意視窗訊息（例如系統匣圖示的回呼訊息）；回傳 true 表示已處理</summary>
+    public Func<uint, IntPtr, IntPtr, bool>? MessageHook { get; set; }
     /// <summary>使用者放開邊框（縮放結束）</summary>
     public event Action? ResizeEnded;
 
@@ -48,6 +50,7 @@ public sealed class WindowSubclass : IDisposable
 
     private IntPtr Proc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam, UIntPtr id, UIntPtr data)
     {
+        if (MessageHook?.Invoke(msg, wParam, lParam) == true) return IntPtr.Zero;
         switch (msg)
         {
             case WM_GETMINMAXINFO when MinSize?.Invoke() is { } min:

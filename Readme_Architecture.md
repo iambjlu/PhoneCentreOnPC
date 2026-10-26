@@ -188,6 +188,12 @@ Windows 虛擬按鍵 → Android keycode（字母、數字、符號、Enter／Ba
 ### Support/WindowManager.cs
 對應 `WindowManager.swift`：以「裝置＋App／桌面／主螢幕」為鍵，同一個只開一個視窗。`OpenMirror`（主螢幕鏡像）、`OpenApp(device, package, at)`（獨立視窗，`at` 是視窗左上角的螢幕位置）、`OpenDesktop`、`Launch`（依啟動台的開啟方式）、`LaunchOnMainScreen`、`OpenLocation`、`OpenSettings`。
 
+### Support/TrayIcon.cs ＋ Pages/TrayPopup.cs
+對應 `MenuBarController`／`MenuBarView`。`TrayIcon` 用 `Shell_NotifyIcon`，回呼訊息掛在主視窗 `WindowSubclass.MessageHook`（也處理檔案總管重啟的 `TaskbarCreated`）；是否顯示跟 `ShowTrayIcon` 設定同步。點圖示叫出 `TrayPopup`（360 寬、無邊框、置頂、失去焦點就收起，放在游標附近且不超出工作區）：每台已連線裝置一區（綠點、名稱、型號、鏡像按鈕，下面最多 14 個「執行中＋最近」App 圖示，點了依啟動台設定開啟），底部「打開 PhoneCentre」、設定、結束。沒有裝置顯示「沒有已連線的裝置」。測試參數 `--tray` 啟動後自動叫出。
+
+### 程式生命週期（App.xaml.cs）
+關閉主視窗：系統匣圖示顯示中就只是隱藏（程式留在系統匣，鏡像視窗不受影響），圖示關閉時就結束程式。`App.Quit()` 先呼叫 `WindowManager.ShutdownAsync()`（各鏡像視窗 `PrepareForQuitAsync`，最多等 6 秒，再 `Stop`）才離開。
+
 ## Ui/
 - `MIcon`：Material 圖示控制項。
 - `SamsungIcon`：One UI 的返回「<」、主畫面「圓角方形」、多工「|||」與強制停止（六角形加叉），照 Mac 版 `SamsungNavIcon` 的尺寸與線寬。

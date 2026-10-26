@@ -14,6 +14,14 @@ public static class WindowManager
 
     public static int OpenCount => Open.Count;
 
+    /// <summary>結束程式前：虛擬顯示器上的 App 先收尾（最多等 6 秒），再停掉所有鏡像</summary>
+    public static async Task ShutdownAsync()
+    {
+        var models = Open.Values.Select(w => w.Model).ToList();
+        try { await Task.WhenAny(Task.WhenAll(models.Select(m => m.PrepareForQuitAsync())), Task.Delay(6000)); } catch { }
+        foreach (var m in models) { try { m.Stop(); } catch { } }
+    }
+
     private static string Key(Device d, string? pkg, bool desktop = false) => $"{d.Id}#{pkg ?? (desktop ? "@desktop" : "@main")}";
 
     /// <summary>主螢幕鏡像</summary>

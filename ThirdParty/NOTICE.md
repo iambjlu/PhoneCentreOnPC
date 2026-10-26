@@ -35,3 +35,15 @@ PhoneCentre **不內含** adb。若系統找不到 adb，PhoneCentre 會在使�
 下載 Android SDK Platform-Tools 到 `%LOCALAPPDATA%\PhoneCentre\platform-tools`。
 Platform-Tools 受 Android Software Development Kit License Agreement 約束：
 https://developer.android.com/studio/terms
+
+## Inter
+
+介面英文字型使用 Inter（SIL Open Font License 1.1，全文見 `licenses/Inter-OFL.txt`）。https://github.com/rsms/inter
+
+## 台北黑體 Taipei Sans TC
+
+介面中文字型使用台北黑體（開源字型，SIL Open Font License 1.1），只內嵌用到的字元子集。https://sites.google.com/view/jtfoundry/zh-tw
+
+## Leaflet
+
+位置模擬器的地圖使用 Leaflet（BSD 2-Clause，全文見 `licenses/Leaflet-BSD2.txt`），地圖圖磚來自 OpenStreetMap contributors（ODbL）。https://leafletjs.com

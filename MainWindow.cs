@@ -28,6 +28,7 @@ public sealed class MainWindow : Window
     private DeviceTab _tab = DeviceTab.Overview;
     private string _contentKey = "";
     private readonly WindowSubclass? _sub;
+    public WindowSubclass Subclass => _sub!;
 
     private readonly StackPanel _deviceList = new() { Spacing = 2, Padding = new Thickness(8, 0, 8, 0) };
     private readonly Ellipse _serverDot = new() { Width = 7, Height = 7 };

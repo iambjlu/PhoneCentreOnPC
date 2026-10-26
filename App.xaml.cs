@@ -7,6 +7,30 @@ namespace PhoneCentre;
 public partial class App : Application
 {
     public static MainWindow MainWindow { get; private set; } = null!;
+    private static TrayIcon? _tray;
+    private static TrayPopup? _popup;
+    private static bool _quitting;
+    private static Microsoft.UI.Dispatching.DispatcherQueueTimer? _testTimer;
+
+    public static bool TrayVisible => _tray?.Visible == true;
+
+    /// <summary>叫出主視窗（從系統匣或關閉後重新開啟）</summary>
+    public static void ShowMainWindow()
+    {
+        MainWindow.AppWindow.Show();
+        if (MainWindow.AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter { State: Microsoft.UI.Windowing.OverlappedPresenterState.Minimized } p) p.Restore();
+        MainWindow.Activate();
+    }
+
+    /// <summary>結束 PhoneCentre：先讓虛擬顯示器上的 App 收尾</summary>
+    public static async void Quit()
+    {
+        if (_quitting) return;
+        _quitting = true;
+        _tray?.Dispose();
+        await WindowManager.ShutdownAsync();
+        Environment.Exit(0);
+    }
 
     public App()
     {
@@ -26,6 +50,18 @@ public partial class App : Application
         MainWindow = new MainWindow();
         Log.Write("MainWindow 建立完成");
         MainWindow.Activate();
+        _tray = new TrayIcon(MainWindow, MainWindow.Subclass);
+        _popup = new TrayPopup();
+        _tray.Clicked += () => MainWindow.DispatcherQueue.TryEnqueue(_popup.Toggle);
+        void SyncTray() => _tray.SetVisible(Settings.AppSettings.Data.ShowTrayIcon);
+        Settings.AppSettings.Changed += SyncTray;
+        SyncTray();
+        MainWindow.AppWindow.Closing += (_, e) =>
+        {
+            if (_quitting) return;
+            if (TrayVisible) { e.Cancel = true; MainWindow.AppWindow.Hide(); }
+            else { e.Cancel = true; Quit(); }
+        };
         Log.Write("啟動設定監看");
         Settings.AppSettings.StartWatching();
         Log.Write("啟動快取管理");
@@ -44,6 +80,12 @@ public partial class App : Application
         var tabArg = Environment.GetCommandLineArgs().FirstOrDefault(a => a.StartsWith("--tab="))?["--tab=".Length..];
         if (tabArg is not null && Enum.TryParse<DeviceTab>(tabArg, true, out var tab)) MainWindow.SelectTab(tab);
 
+        // 測試用：--tray 啟動後自動叫出系統匣視窗
+        if (Environment.GetCommandLineArgs().Contains("--tray"))
+        {
+            _testTimer = MainWindow.DispatcherQueue.CreateTimer(); var t = _testTimer; t.Interval = TimeSpan.FromSeconds(6); t.IsRepeating = false;
+            t.Tick += (_, _) => { MainWindow.AppWindow.Hide(); _popup!.Toggle(); }; t.Start();
+        }
         // 測試用：--settings=<頁號> 直接開設定視窗
         var setArg = Environment.GetCommandLineArgs().FirstOrDefault(a => a.StartsWith("--settings="))?["--settings=".Length..];
         if (setArg is not null && int.TryParse(setArg, out var page)) WindowManager.OpenSettings(page);
