@@ -35,6 +35,10 @@ Mac 版是功能與行為的參考：要移植某個功能時，先讀 Mac 版�
   - Intel 機台：`192.168.31.68`，帳號 `Administrator`（i5-4278U，真機）。
   - 密碼由使用者在對話中提供，**用環境變數 `SSHPASS` 傳給腳本**，不要寫進檔案。
 - `scripts/deploy.sh [x64|arm64]`：把專案同步到 ARM 機台並發行單一 exe（輸出在機台的 `C:\Users\iambjlu\src\publish\<平台>\PhoneCentre.exe`）。
+  - 建置機是 Parallels 的 **「Windows 11 Work」**（不是「Windows 11」）。沒開機時用 `prlctl start "Windows 11 Work"`，等 `10.211.55.10` 的 ssh 連得上再編譯（`prlctl list -a` 可看狀態）。
+  - 編譯一直等不到完成（`deploy.sh` 輸出 `status: WAIT`）時，先查機台：`C:\Users\iambjlu\build.log` 的時間沒更新、也沒有 dotnet 行程，代表排程工作 `bld` 沒建立成功（`schtasks /query /tn bld` 找不到）。解法：用互動式重建並執行，VM 桌面會跳出 PowerShell 視窗，也能在工作管理員看到 dotnet：
+    `schtasks /create /tn bld /sc once /st 23:59 /f /it /tr "powershell -NoProfile -ExecutionPolicy Bypass -NoExit -File C:\Users\iambjlu\build.ps1"`，再 `schtasks /run /tn bld`；完成旗標是 `C:\Users\iambjlu\build.done`，成品在 `C:\Users\iambjlu\src\publish\<平台>\PhoneCentre.exe`，用 scp 拉回 Mac。
+  - 每編一個平台，`build.ps1` 會先刪掉 `src` 再解開原始碼，上一個平台的 `publish` 也會一起消失，所以編完要立刻把 exe 拉回來。
 - `scripts/shot.sh <arm|intel> <exe 的 Windows 路徑> [exe 參數] [等待秒數] [手機位址]`：在機台的桌面會話啟動 exe、截圖、拉回 Mac（`--mirror` 參數會自動開鏡像視窗）。
 - 測試手機：三星 S10（SM-G973F）`192.168.31.152:5555`，Mac 的 adb 金鑰（`~/.android/adbkey*`）已複製到兩台 Windows 機台，不用再授權。
 - 兩台機台上的 adb（`%LOCALAPPDATA%\PhoneCentre\platform-tools`）第一次執行會跳 Windows 防火牆詢問，要在機台上按「允許」；沒回應會被自動建立阻擋規則，之後一直跳。
