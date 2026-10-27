@@ -28,8 +28,25 @@ PS
 sshpass -e scp $SSHO "$WORK/build.ps1" "$ARM_USER@$ARM_HOST:C:/Users/$ARM_USER/build.ps1" >/dev/null 2>&1
 arm "del C:\\Users\\$ARM_USER\\build.done 2>nul & schtasks /create /tn bld /sc once /st 23:59 /rl highest /f /tr \"powershell -NoProfile -ExecutionPolicy Bypass -File C:\\Users\\$ARM_USER\\build.ps1\" >nul & schtasks /run /tn bld >nul" >/dev/null
 for i in $(seq 1 80); do
-  r=$(arm "if exist C:\\Users\\$ARM_USER\\build.done (echo FIN) else (echo WAIT)" | grep -aE "FIN|WAIT" | tail -1)
+  # build.done 或成品 exe 任一出現就算編完（build.ps1 一開始會清掉 src，所以 exe 存在＝這次編出來的）
+  r=$(arm "if exist C:\\Users\\$ARM_USER\\build.done (echo FIN) else if exist C:\\Users\\$ARM_USER\\src\\publish\\$P\\PhoneCentre.exe (echo FIN) else (echo WAIT)" | grep -aE "FIN|WAIT" | tail -1)
   [ "$r" = "FIN" ] && break; sleep 10
 done
 echo "status: $r"
 arm "type C:\\Users\\$ARM_USER\\build.log | findstr /i \"error warning Elapsed ->\" & dir C:\\Users\\$ARM_USER\\src\\publish\\$P" | tail -"$LINES"
+
+# 編完立刻把 exe 拉回 Mac 並壓縮成 ~/Downloads/PhoneCentreOnPC_beta_<Intel|ARM>.zip（x64＝Intel、arm64＝ARM）
+if [ "$r" = "FIN" ]; then
+  case "$P" in x64) ARCH=Intel;; *) ARCH=ARM;; esac
+  OUT="$WORK/out-$P"; rm -rf "$OUT"; mkdir -p "$OUT"
+  sshpass -e scp $SSHO "$ARM_USER@$ARM_HOST:C:/Users/$ARM_USER/src/publish/$P/PhoneCentre.exe" "$OUT/PhoneCentre.exe" >/dev/null 2>&1
+  if [ -s "$OUT/PhoneCentre.exe" ]; then
+    ZIP="$HOME/Downloads/PhoneCentreOnPC_beta_$ARCH.zip"; rm -f "$ZIP"
+    (cd "$OUT" && zip -qj "$ZIP" PhoneCentre.exe)
+    echo "RESULT: 編譯完成 -> $ZIP"
+  else
+    echo "RESULT: 編譯完成但 exe 拉不回來，請手動 scp"
+  fi
+else
+  echo "RESULT: 逾時仍未編完，請依 CLAUDE.md 檢查機台"
+fi

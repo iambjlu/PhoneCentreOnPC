@@ -38,10 +38,13 @@ Mac 版是功能與行為的參考：要移植某個功能時，先讀 Mac 版�
   - 建置機是 Parallels 的 **「Windows 11 Work」**（不是「Windows 11」）。沒開機時用 `prlctl start "Windows 11 Work"`，等 `10.211.55.10` 的 ssh 連得上再編譯（`prlctl list -a` 可看狀態）。
   - 編譯一直等不到完成（`deploy.sh` 輸出 `status: WAIT`）時，先查機台：`C:\Users\iambjlu\build.log` 的時間沒更新、也沒有 dotnet 行程，代表排程工作 `bld` 沒建立成功（`schtasks /query /tn bld` 找不到）。解法：用互動式重建並執行，VM 桌面會跳出 PowerShell 視窗，也能在工作管理員看到 dotnet：
     `schtasks /create /tn bld /sc once /st 23:59 /f /it /tr "powershell -NoProfile -ExecutionPolicy Bypass -NoExit -File C:\Users\iambjlu\build.ps1"`，再 `schtasks /run /tn bld`；完成旗標是 `C:\Users\iambjlu\build.done`，成品在 `C:\Users\iambjlu\src\publish\<平台>\PhoneCentre.exe`，用 scp 拉回 Mac。
+  - 排程工作 `bld` 連 `/it` 重建後也沒動（`build.log` 時間沒變、沒有 dotnet 行程；機台沒有互動式登入時會這樣）時，改成直接用 ssh 同步執行：`ssh iambjlu@10.211.55.10 "powershell -NoProfile -ExecutionPolicy Bypass -File C:\Users\iambjlu\build.ps1"`（用背景執行，結束會通知），跑完再用 scp 拉 exe 並壓縮。機台的 shell 是 cmd，多個指令用 `&` 不要用 `;`。判斷有沒有編完，一律看機台上 `build.log` 的時間與 `publish\<平台>\PhoneCentre.exe` 是否為新的，不要只靠 `deploy.sh` 有沒有印東西或有沒有逾時。
   - 每編一個平台，`build.ps1` 會先刪掉 `src` 再解開原始碼，上一個平台的 `publish` 也會一起消失，所以編完要立刻把 exe 拉回來。
   - 一個平台約 1 分鐘就編完。CPU 沒在跑不一定是卡住，可能已經編完：先看機台上 `build.done` 與 `publish\<平台>\PhoneCentre.exe` 的修改時間，再判斷。
   - 手動編第二個平台：把 Mac 暫存的 `build.ps1` 裡的 `win-x64`、`Platform=x64`、`publish\x64` 換成 `win-arm64`、`Platform=ARM64`、`publish\arm64`，scp 到 `C:\Users\iambjlu\build.ps1`，刪掉 `build.done` 後 `schtasks /run /tn bld`。
   - 在 zsh 裡把多個 `-o` 選項放進變數給 ssh／scp 用不會被拆開（出現 `keyword connecttimeout extra arguments`），要用 `bash -c` 執行或改用陣列。
+- **成品存檔**：編譯完成後，成品要存到 Mac 的 `~/Downloads/`，壓縮成兩個架構各一個 zip：`PhoneCentreOnPC_beta_Intel.zip`（x64）、`PhoneCentreOnPC_beta_ARM.zip`（arm64），裡面是 `PhoneCentre.exe`。每次要交付的編譯，兩個架構都要編、都要更新這兩個 zip（`deploy.sh x64`、`deploy.sh arm64` 各跑一次，腳本編完會自動拉回 exe 並壓縮到該位置）。
+- **編完要自己確認**（以前常編完卻沒發現）：看 `deploy.sh` 最後的 `RESULT:` 行；沒有 `RESULT: 編譯完成` 時不要當作還在跑，直接查機台 `build.done` 與 `publish\<平台>\PhoneCentre.exe` 的修改時間，exe 存在且是新的就是編完了，立刻拉回並壓縮。回報時要明講「已編完、zip 在哪」。
 - `scripts/shot.sh <arm|intel> <exe 的 Windows 路徑> [exe 參數] [等待秒數] [手機位址]`：在機台的桌面會話啟動 exe、截圖、拉回 Mac（`--mirror` 參數會自動開鏡像視窗）。
 - 測試手機：三星 S10（SM-G973F）`192.168.31.152:5555`，Mac 的 adb 金鑰（`~/.android/adbkey*`）已複製到兩台 Windows 機台，不用再授權。
 - 兩台機台上的 adb（`%LOCALAPPDATA%\PhoneCentre\platform-tools`）第一次執行會跳 Windows 防火牆詢問，要在機台上按「允許」；沒回應會被自動建立阻擋規則，之後一直跳。
@@ -56,7 +59,7 @@ Mac 版是功能與行為的參考：要移植某個功能時，先讀 Mac 版�
 每次任務完成後，必須執行：
 
 - 說明有沒有需要重新編譯哪個程式、需不需要重新開。
-- 用 `scripts/deploy.sh x64` 重新編譯，確認沒有錯誤；用 `scripts/shot.sh` 在 ARM 機台截圖確認畫面；涉及視訊、輸入的變更要再到 Intel 機台驗證。
+- 用 `scripts/deploy.sh x64` 與 `scripts/deploy.sh arm64` 重新編譯，確認沒有錯誤，並確認 `~/Downloads/PhoneCentreOnPC_beta_Intel.zip`、`..._ARM.zip` 已更新；用 `scripts/shot.sh` 在 ARM 機台截圖確認畫面；涉及視訊、輸入的變更要再到 Intel 機台驗證。
 - 如果是參考 md 進行的任務，請在最後回頭檢視各項任務是否皆已確實完成或是有無新的任務（如有要求做完打 ✅，則先重新讀取有無新內容再打 ✅）。
 
 以上全部無誤才算完成。
