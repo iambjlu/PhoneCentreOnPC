@@ -44,6 +44,8 @@ public sealed record DeviceStatus
     public int? BatteryCycles { get; set; }
     public int? BatteryMaxMah { get; set; }
     public int? BatteryDesignMah { get; set; }
+    /// <summary>目前充電功率（W），電壓 × 電流；只有充電中才有值</summary>
+    public double? ChargingWatts { get; set; }
     public string ManufactureDate { get; set; } = "";   // yyyyMMdd（三星的 RF 校正日期，約等於出廠日）
 
     public bool SameAs(DeviceStatus? o) => o is not null && System.Text.Json.JsonSerializer.Serialize(this) == System.Text.Json.JsonSerializer.Serialize(o);
@@ -70,7 +72,7 @@ public sealed record DeviceStatus
         echo '@@wifi'; dumpsys wifi | grep -m1 -oE 'RSSI: -?[0-9]+'
         echo '@@wifiinfo'; dumpsys wifi | grep -m1 'mWifiInfo SSID' | cut -c1-200
         echo '@@ip'; ip -f inet addr show wlan0 2>/dev/null | grep -m1 inet
-        echo '@@sys'; for f in cycle_count battery_cycle fg_cycle charge_full_design fg_fullcapnom charge_full; do echo "$f=$(cat /sys/class/power_supply/battery/$f 2>/dev/null)"; done
+        echo '@@sys'; for f in cycle_count battery_cycle fg_cycle charge_full_design fg_fullcapnom charge_full current_now voltage_now; do echo "$f=$(cat /sys/class/power_supply/battery/$f 2>/dev/null)"; done
         echo '@@mfg'; getprop ril.rfcal_date
         echo '@@rot'; settings get system accelerometer_rotation; settings get system user_rotation
         echo '@@force'; wm get-ignore-orientation-request 2>/dev/null
@@ -160,6 +162,13 @@ public sealed record DeviceStatus
         static int? Mah(int? v) => v is > 0 ? (v > 100_000 ? v / 1000 : v) : null;
         s.BatteryDesignMah = Mah(sys.TryGetValue("charge_full_design", out var d) ? d : null);
         s.BatteryMaxMah = Mah(sys.TryGetValue("fg_fullcapnom", out var m) ? m : null) ?? Mah(sys.TryGetValue("charge_full", out var cf) ? cf : null);
+        // 充電功率：電壓（µV）× 電流。電流單位各家不同（標準是 µA，三星是 mA），絕對值 ≥ 20000 當作 µA
+        if (s.Charging && sys.TryGetValue("current_now", out var rawI) && sys.TryGetValue("voltage_now", out var rawV) && rawV > 0)
+        {
+            double mA = Math.Abs((long)rawI) >= 20_000 ? Math.Abs((long)rawI) / 1000.0 : Math.Abs((long)rawI);
+            double w = mA / 1000 * rawV / 1_000_000;
+            if (w >= 0.1) s.ChargingWatts = w;
+        }
         s.ManufactureDate = (Sec("mfg").FirstOrDefault() ?? "").Trim();
         s.ForceOrientation = Sec("force").Any(l => l.Contains("true"));
         var rot = Sec("rot");

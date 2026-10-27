@@ -94,7 +94,7 @@ scrcpy 3.3.4 控制協定編碼（big-endian），與 Mac 版 Swift 逐位元組
 對應 `DeviceManager.swift`：每 2 秒輪詢 `host:devices-l`（`DispatcherQueueTimer`，所有成員只在 UI 執行緒存取）、adb server 掛了自動 `start-server`、連線後抓 `DeviceInfo`、每台裝置一個 `AppCatalog`。找不到 adb 時狀態是 `MissingAdb`。無線裝置記住與自動重連、遠端 PhoneCentre 尚未移植。
 
 ### DeviceStatus.cs
-對應 `DeviceStatus.swift`：一次 shell 取得電池（狀態碼區分充電中／已插電未充電）、預設網路（Wi-Fi 或 MOBILE[LTE]→4G/5G）、telephony.registry 的每個卡槽（電信、世代、dBm、三星 SignalBarInfo 格數、緊急通話、無線電關閉）、Wi-Fi RSSI／SSID／IP、電池循環與容量、生產日期、旋轉設定。`DeviceStatusStore` 每 10 秒更新所有在線裝置。
+對應 `DeviceStatus.swift`：一次 shell 取得電池（狀態碼區分充電中／已插電未充電；充電中總覽會附上目前充電功率，例如「充電中 12.5W」＝`current_now` × `voltage_now`，電流單位各家不同（標準 µA、三星 mA），絕對值 ≥ 20000 當 µA，不到 0.1W 不顯示，欄位 `ChargingWatts`）、預設網路（Wi-Fi 或 MOBILE[LTE]→4G/5G）、telephony.registry 的每個卡槽（電信、世代、dBm、三星 SignalBarInfo 格數、緊急通話、無線電關閉）、Wi-Fi RSSI／SSID／IP、電池循環與容量、生產日期、旋轉設定。`DeviceStatusStore` 每 10 秒更新所有在線裝置。
 
 ### PhoneData.cs
 對應 `PhoneData.swift`＋`PhoneDataStore.swift`：`PhoneSMS`／`PhoneCall`／`PhoneNotification`／`PhoneDataBundle`（JSON 存 `%LOCALAPPDATA%\PhoneCentre\Data\<裝置鍵>\data.json`，先寫暫存檔再取代，不放快取目錄所以不會被容量清理刪掉）。`PhoneDataParser`：`Rows` 解析 `content query` 輸出（每筆以「Row: N 」開頭，值可能含逗號與換行，所以依投影欄位的固定順序切割，最後一欄可含任何內容）；`Notifications` 解析 `dumpsys notification --noredact` 的「Notification List」區段（`NotificationRecord(` 取 pkg／key／flags，0x2＝常駐；extras 的 title／text／bigText，值含換行時累積到行尾的「)」；找不到區段回傳 null，避免把所有通知誤判成已清除）。`PhoneDataStore`：每 15 秒一次，通知每次都同步、簡訊與通話記錄每分鐘一次，只抓比已保存最新一筆更新的；通知對照手機目前的（不見的標 `ClearedAt`、新的加入、同一個 key 內容有變就原地更新）；`Prune` 依保存天數刪除（還在手機上的通知不刪）。

@@ -328,7 +328,7 @@ public sealed class OverviewPage : UserControl
         var t = $"{s.BatteryLevel}%";
         switch (s.BatteryStatus)
         {
-            case 2: t += "（充電中）"; break;
+            case 2: t += s.ChargingWatts is double w ? $"（充電中 {w:0.0}W）" : "（充電中）"; break;
             case 5: t += "（已充飽）"; break;
             case 4: if (s.PluggedIn) t += "（已插電，未充電）"; break;
             default: if (s.PluggedIn) t += "（已插電，未充電）"; break;
