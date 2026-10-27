@@ -33,7 +33,7 @@ scripts/                    部署、截圖、FFmpeg 編譯腳本
 - 發行：`dotnet publish PhoneCentreOnPC.csproj -c Release -r win-x64 -p:Platform=x64`（ARM64 同理）。`WindowsPackageType=None`＋`WindowsAppSDKSelfContained`＋`SelfContained`＋`PublishSingleFile`＋`IncludeNativeLibrariesForSelfExtract`；Windows App SDK 的單檔發行需要 `EnableMsixTooling=true`。
 - 內嵌資源：`scrcpy-server`、`phonecentre-helper.jar`、依平台的 FFmpeg DLL 都是 `EmbeddedResource`（`LogicalName` 為檔名）。`Assets.Extract` 第一次使用時解到 `%LOCALAPPDATA%\PhoneCentre\assets`（大小相同就沿用），因為 `adb push` 與 `LoadLibrary` 都需要實體檔案。
 - 日常流程（Mac 上寫、ARM 機台編譯、Intel 機台驗證）見 `CLAUDE.md`，腳本：
-  - `scripts/deploy.sh`：打包原始碼送到 ARM 機台，用排程工作執行 `dotnet publish`（SSH 長時間占線容易斷，所以用排程工作加完成旗標檔輪詢）。排程工作 `bld` 若建立失敗，腳本會一直輪詢到逾時（`status: WAIT`）；用 `/it` 互動式重建就會在機台桌面開 PowerShell 視窗執行，做法見 `CLAUDE.md`。`build.ps1` 每次先刪掉 `src` 再解開原始碼，所以一次只能編一個平台，編完要先把 exe 拉走。
+  - `scripts/deploy.sh`：打包原始碼送到 ARM 機台，用排程工作執行 `dotnet publish`（SSH 長時間占線容易斷，所以用排程工作加完成旗標檔輪詢）。排程工作 `bld` 若建立失敗，腳本會一直輪詢到逾時（`status: WAIT`）；用 `/it` 互動式重建就會在機台桌面開 PowerShell 視窗執行，做法見 `CLAUDE.md`。`build.ps1` 每次先刪掉 `src` 再解開原始碼，所以一次只能編一個平台，編完要先把 exe 拉走（一個平台約 1 分鐘）；第二個平台要手動改 `build.ps1` 的平台參數再執行，見 `CLAUDE.md`。
   - `scripts/push.sh`：把建好的 x64 exe 放到兩台 Windows 桌面的 `PhoneCentre-Windows\x64`。
   - `scripts/shot.sh` ＋ `scripts/windows/shot.ps1`：在機台的桌面會話（互動式排程 `/it`）啟動 exe、截圖、收集 `log.txt`。參數寫進小腳本再執行，避開 `schtasks /tr` 的多層引號。
   - `scripts/build-ffmpeg.sh`：在 Mac 上用 llvm-mingw 交叉編譯精簡 FFmpeg。
