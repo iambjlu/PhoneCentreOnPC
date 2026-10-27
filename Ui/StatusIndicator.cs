@@ -51,6 +51,13 @@ public sealed class StatusIndicator : UserControl
         };
     }
 
+    /// <summary>電量數字字級：最大 12；位數多（100）時縮小，確保寬度不超過環頂端缺口（避免壓到環的圓頭）</summary>
+    private double LevelFontSize(int level)
+    {
+        double gapWidth = 2 * (_size / 2 - 2) * Math.Sin(38 * Math.PI / 180) - 3.2 - 2;
+        return Math.Min(Math.Min(12, _size * 0.3), gapWidth / (level.ToString().Length * 0.62));
+    }
+
     /// <summary>null＝還沒讀到狀態（只轉圈圈）</summary>
     public void Set(DeviceStatus? s)
     {
@@ -88,7 +95,7 @@ public sealed class StatusIndicator : UserControl
         {
             var t = new TextBlock
             {
-                Text = s.BatteryLevel.ToString(), FontSize = Math.Min(12, _size * 0.3), FontWeight = Microsoft.UI.Text.FontWeights.Bold,
+                Text = s.BatteryLevel.ToString(), FontSize = LevelFontSize(s.BatteryLevel), FontWeight = Microsoft.UI.Text.FontWeights.Bold,
                 Foreground = s.Charging ? ring : White(),
             };
             t.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
