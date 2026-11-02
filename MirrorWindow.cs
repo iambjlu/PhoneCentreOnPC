@@ -34,6 +34,12 @@ public sealed class MirrorWindow : Window
     private double? _savedMainVideoHeight;
     public Action? OnClosed;
 
+    /// <summary>獨立視窗：標題列與工作列圖示換成目前的 App（圖示還沒下載到時先用 PhoneCentre 圖示，下載好會再套用）</summary>
+    private void ApplyAppIcon()
+    {
+        if (Model.AppPackage is { } pkg) PhoneCentre.Support.WindowIcon.ApplyApp(this, Model.Catalog.IconPngPath(pkg));
+    }
+
     private double Scale => Content?.XamlRoot?.RasterizationScale ?? 1;
 
     public MirrorWindow(MirrorModel model, (double X, double Y)? topLeft = null)
@@ -41,6 +47,7 @@ public sealed class MirrorWindow : Window
         Model = model;
         Title = model.Title;
         PhoneCentre.Support.WindowIcon.Apply(this);
+        ApplyAppIcon();
         PhoneCentre.Support.TaskbarGroup.Apply(this, model.Device.Id + "#" + (model.AppPackage ?? (model.DesktopMode ? "@desktop" : "@main")), !model.IsVirtualDisplay);
         SystemBackdrop = new MicaBackdrop();
         _view = new MirrorView(model, this);
@@ -71,7 +78,7 @@ public sealed class MirrorWindow : Window
         model.IsActive = () => AppWindow.IsVisible && IsForeground;
         model.FlashRequested += Flash;
         model.LinkChanged += () => { };
-        model.Catalog.Changed += () => { Title = model.Title; };
+        model.Catalog.Changed += () => { Title = model.Title; ApplyAppIcon(); };
         Closed += OnWindowClosed;
         // 關閉前先讓 App 回到背景（虛擬顯示器視窗）
         AppWindow.Closing += OnClosing;

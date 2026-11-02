@@ -91,7 +91,7 @@ internal sealed class SideColumn : UserControl
         _appWindowPanel.VerticalAlignment = VerticalAlignment.Top;
         _area.Children.Add(Ui.Ui.Panel(_appWindowPanel));
         ((FrameworkElement)_area.Children[^1]).VerticalAlignment = VerticalAlignment.Top;
-        _area.Children[^1].Visibility = Visibility.Visible;
+        _area.Children[^1].Visibility = Visibility.Collapsed;   // 獨立視窗才由 UpdateApps 顯示，沒有 App 時不留空的島
 
         // 導覽列：導覽項目在上，金剛三鍵（返回、主畫面、多工）固定在最下面
         _navScroll = new ArrowScroll(_navItems, false);
@@ -254,7 +254,7 @@ internal sealed class SideColumn : UserControl
                 ? new Microsoft.UI.Xaml.Shapes.Rectangle { Width = 1, Height = 30, Fill = Ui.Ui.Hex(0x8CFFFFFF), Margin = new Thickness(0, 0, 0, 0) }
                 : Ui.Ui.Divider(0.55));
         foreach (var p in unopened) _othersContent.Children.Add(RailIcon(p, false));
-        if (_othersPanel is not null) _othersPanel.Visibility = otherOpened.Count + unopened.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        if (_othersPanel is not null) _othersPanel.Visibility = _othersContent.Children.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
     // MARK: App 圖示（點一下啟動；拖出 App 列超過距離放開 → 在獨立視窗開啟）
@@ -345,6 +345,7 @@ internal sealed class SideColumn : UserControl
         var orient = _horizontal ? Orientation.Horizontal : Orientation.Vertical;
         _navItems = new StackPanel { Orientation = orient, Spacing = 1 };
         _navKeys = new StackPanel { Orientation = orient, Spacing = 1 };
+        _navItems.HorizontalAlignment = _navKeys.HorizontalAlignment = _horizontal ? HorizontalAlignment.Left : HorizontalAlignment.Center;   // 直向：按鍵列在膠囊正中間
         void Add(UIElement e) => _navItems.Children.Add(e);
 
         var video = Ui.Ui.NavButton(new MIcon("tune", 18), "畫質設定", () => { });

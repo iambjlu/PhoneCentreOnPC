@@ -69,6 +69,13 @@ public sealed class AppCatalog
 
     private string IconDir => CacheDir.For(Device, "icons");
 
+    /// <summary>App 圖示的 PNG 檔路徑（還沒下載到就是 null）；獨立視窗拿來當視窗與工作列圖示</summary>
+    public string? IconPngPath(string pkg)
+    {
+        var f = Path.Combine(IconDir, pkg + ".png");
+        return File.Exists(f) ? f : null;
+    }
+
     /// <summary>UI 取圖示；還沒載入時回傳 null，載好後會觸發 <see cref="Changed"/></summary>
     public ImageSource? Icon(string pkg)
     {
