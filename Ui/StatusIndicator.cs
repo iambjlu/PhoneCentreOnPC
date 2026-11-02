@@ -158,20 +158,19 @@ public sealed class StatusIndicator : UserControl
             Foreground = s.Charging ? ring : White(), CharacterSpacing = (int)Math.Round(tracking / fs * 1000),
         };
         t.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-        double textW = t.DesiredSize.Width + tracking;
-        double boltSlot = bolt ? fs * 0.40 : 0, spacing = bolt ? -0.04 * fs : 0;
-        double groupLeft = cx + tracking / 2 - (bolt ? 0.06 * fs : 0) - (textW + spacing + boltSlot) / 2;
-        // 小圖：有閃電時數字右移 1px（閃電不動）；鏡像視窗只右移 0.5px（數字相對往左 0.5px）
-        double digitDx = bolt && !LargeSize ? (_mirror ? 0.5 : 1) : 0;
-        Canvas.SetLeft(t, groupLeft + digitDx);
+        // DesiredSize 已含字距；數字與閃電字形之間留固定間距，整組（數字＋間距＋閃電字形）置中
+        double textW = t.DesiredSize.Width;
+        double iconSize = fs * 1.15;                      // Material 的閃電只佔圖示方框中間約 0.42 寬
+        double boltGlyphW = bolt ? iconSize * 0.42 : 0, gap = bolt ? 0.1 * fs : 0;
+        double groupLeft = cx - (textW + gap + boltGlyphW) / 2;
+        Canvas.SetLeft(t, groupLeft);
         Canvas.SetTop(t, centerY - t.DesiredSize.Height / 2);
         _canvas.Children.Add(t);
         if (!bolt) return;
-        // 大圖：閃電右移 1px（數字不動）；鏡像視窗閃電右移 0.5px
-        double boltDx = LargeSize ? 1 : (_mirror ? 0.5 : 0);
-        double iconSize = fs * 1.15;   // Material 的閃電只佔圖示方框中間約 0.42 寬，放大方框讓字形高度接近 SF Symbol
+        // 鏡像視窗的數字與閃電再拉開 0.5px
+        double boltDx = _mirror ? 0.5 : 0;
         var icon = new MIcon("bolt", iconSize) { Foreground = s.Charging ? ring : White(0.7) };
-        Canvas.SetLeft(icon, groupLeft + textW + spacing + boltDx - iconSize * 0.3);   // 字形靠左貼著數字
+        Canvas.SetLeft(icon, groupLeft + textW + gap + boltDx - iconSize * 0.29);   // 字形靠左貼著數字
         Canvas.SetTop(icon, centerY - iconSize / 2);
         _canvas.Children.Add(icon);
     }
