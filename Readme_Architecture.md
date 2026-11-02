@@ -94,7 +94,7 @@ scrcpy 3.3.4 控制協定編碼（big-endian），與 Mac 版 Swift 逐位元組
 對應 `DeviceManager.swift`：每 2 秒輪詢 `host:devices-l`（`DispatcherQueueTimer`，所有成員只在 UI 執行緒存取）、adb server 掛了自動 `start-server`、連線後抓 `DeviceInfo`、每台裝置一個 `AppCatalog`。找不到 adb 時狀態是 `MissingAdb`。無線裝置記住與自動重連、遠端 PhoneCentre 尚未移植。
 
 ### DeviceStatus.cs
-對應 `DeviceStatus.swift`：一次 shell 取得電池（狀態碼區分充電中／已插電未充電；充電中總覽會附上目前充電功率，例如「充電中 12.5W」＝`current_now` × `voltage_now`，電流單位各家不同（標準 µA、三星 mA），絕對值 ≥ 20000 當 µA，不到 0.1W 不顯示，欄位 `ChargingWatts`）、預設網路（Wi-Fi 或 MOBILE[LTE]→4G/5G）、telephony.registry 的每個卡槽（電信、世代、dBm、三星 SignalBarInfo 格數、緊急通話、無線電關閉）、Wi-Fi RSSI／SSID／IP、電池循環與容量、生產日期、旋轉設定。`DeviceStatusStore` 每 10 秒更新所有在線裝置。
+對應 `DeviceStatus.swift`：一次 shell 取得電池（狀態碼區分充電中／已插電未充電；充電中總覽會附上目前充電功率，例如「充電中 12.5W」＝`current_now` × `voltage_now`，電流單位各家不同（標準 µA、三星 mA），絕對值 ≥ 20000 當 µA，不到 0.1W 不顯示，欄位 `ChargingWatts`）、預設網路（Wi-Fi 或 MOBILE[LTE]→4G/5G）、telephony.registry 的每個卡槽（電信、世代、dBm、三星 SignalBarInfo 格數、緊急通話、無線電關閉）、Wi-Fi RSSI／SSID／IP、電池循環與容量、生產日期、旋轉設定。三星 SignalBarInfo 是 5 格制，換算成 4 格（四捨五入）；`NoService`＝有 SIM 但連緊急通話都不行（沒有訊號或飛航模式），僅限緊急通話不算；輸出沒有 `level:`（電池資料，每台手機都有）視為讀取失敗，保留上一筆資料或繼續轉圈圈，不要顯示成「無 SIM」。`DeviceStatusStore` 每 10 秒更新所有在線裝置。
 
 ### PhoneData.cs
 對應 `PhoneData.swift`＋`PhoneDataStore.swift`：`PhoneSMS`／`PhoneCall`／`PhoneNotification`／`PhoneDataBundle`（JSON 存 `%LOCALAPPDATA%\PhoneCentre\Data\<裝置鍵>\data.json`，先寫暫存檔再取代，不放快取目錄所以不會被容量清理刪掉）。`PhoneDataParser`：`Rows` 解析 `content query` 輸出（每筆以「Row: N 」開頭，值可能含逗號與換行，所以依投影欄位的固定順序切割，最後一欄可含任何內容）；`Notifications` 解析 `dumpsys notification --noredact` 的「Notification List」區段（`NotificationRecord(` 取 pkg／key／flags，0x2＝常駐；extras 的 title／text／bigText，值含換行時累積到行尾的「)」；找不到區段回傳 null，避免把所有通知誤判成已清除）。`PhoneDataStore`：每 15 秒一次，通知每次都同步、簡訊與通話記錄每分鐘一次，只抓比已保存最新一筆更新的；通知對照手機目前的（不見的標 `ClearedAt`、新的加入、同一個 key 內容有變就原地更新）；`Prune` 依保存天數刪除（還在手機上的通知不刪）。
@@ -142,7 +142,7 @@ scrcpy 3.3.4 控制協定編碼（big-endian），與 Mac 版 Swift 逐位元組
 ### Mirror/MirrorModel.cs
 對應 `MirrorModel.swift`：一個鏡像視窗的狀態與工作階段管理，只在 UI 執行緒使用。主螢幕鏡像，或是在虛擬顯示器上執行單一 App（獨立視窗）／桌面（桌面模式）。
 - 狀態（連線中、提示、組字文字、手機鎖定、黑屏、靜音、鍵盤模式、畫質、影像大小、手機狀態、App 已關閉與最後一幀）改了都會觸發 `Changed`，視窗再重畫疊加層與右側欄。
-- 連線：`Start` 建立 `ScrcpySession`＋`H264Decoder`＋（主螢幕才有）`AudioPlayer`，每個 session 一組 `Link`；重啟時先拔掉舊 session 的回呼，延遲 0.6 秒等舊 server 釋放硬體編碼器；斷線時 `ScheduleRetry` 每 3 秒看裝置回來沒有（自動維持連線）。
+- 連線：`Start` 建立 `ScrcpySession`＋`H264Decoder`＋（主螢幕才有）`AudioPlayer`，每個 session 一組 `Link`；重啟時先拔掉舊 session 的回呼，延遲 0.6 秒等舊 server 釋放硬體編碼器；斷線時 `ScheduleRetry` 每 3 秒看裝置回來沒有（自動維持連線）。手機端無法建立 AudioRecord（連線失敗訊息含 `Audio recording error`／`AudioRecord`）時，這個視窗之後的連線都不再要求音訊（`_audioCaptureFailed`），顯示「手機無法擷取聲音，已改為不轉送聲音」並立刻重連。
 - 虛擬顯示器：大小＝視窗 DIP × 螢幕縮放（密度 160 × 縮放，1 DIP ≈ 1 dp，取 8 的倍數，受最大解析度限制）；連線後 `FinishConnectAsync` 以 `dumpsys display` 找名為 scrcpy、大小相符且尚未被認領的顯示器；調整視窗大小時 `Start(handover: true)` 保留舊 session，新顯示器就緒後用 `am display move-stack` 把舊顯示器的 root task 搬過去（確認舊顯示器沒有 task 才關舊 session）；`NudgeDisplayConfigAsync` 把密度加 1 再改回觸發 App 重新排版（先確認顯示器還在，否則 `wm density -d` 會退回操作主螢幕）；`EnsureAppOnDisplayAsync` 處理 App 本來就在別的顯示器執行時畫面黑掉；`SendAppsToBackgroundAsync` 關視窗前用手機端輔助程式 `tobg` 把 App 送到主螢幕背景再 `am kill`。
 - 獨立視窗每 2 秒檢查顯示器上是否還有 root task（連續兩次沒有才算關閉），顯示「XXX 已關閉」與「打開」「關閉視窗」；使用者在手機上自己重開時會自動搬回來。
 - 定時：剪貼簿（`Clipboard.ContentChanged` 標記後每 0.7 秒同步到手機）、手機狀態每 5 秒、App 列與鎖定偵測每 3 秒。
@@ -201,7 +201,7 @@ Windows 虛擬按鍵 → Android keycode（字母、數字、符號、Enter／Ba
 ## Ui/
 - `MIcon`：Material 圖示控制項。
 - `SamsungIcon`：One UI 的返回「<」、主畫面「圓角方形」、多工「|||」與強制停止（六角形加叉），照 Mac 版 `SamsungNavIcon` 的尺寸與線寬。
-- `StatusIndicator`：外環＝電池（左右兩段 145°–232°、308°–395°，充電綠色、≤20% 紅色，電量數字壓在環頂端缺口，字級最大 12，三位數的 100 會縮小到寬度不超過缺口），中間 Wi-Fi（依格數）或 4G/5G，下方 4 個訊號點（同一個圓上、角度間隔 22°）；沒讀到狀態時轉圈圈。
+- `StatusIndicator`：外環＝電池（左右兩段，上方缺口半角 42°、鏡像視窗 44.3°，充電綠色、≤20% 紅色；線寬、點、內縮照 38 調，大於 38 時依 `K` 等比放大，使用處尺寸不要小於 38）。電量數字壓在環頂端缺口，字級（含下方世代文字）固定為 min(12K, 0.3×直徑)×0.9，不隨位數改變；插著電（充電中綠色／插電未充灰色）且未滿 100% 時數字右邊多一個閃電，佔第三位數的位置（三位數與閃電字距收緊 0.08 倍字級，100% 不顯示閃電，小圖／大圖／鏡像視窗的閃電與數字有 0.5～1px 的微調）。有 Wi-Fi：中間 Wi-Fi 圖示（依格數），下方 4 個訊號點（同一個圓上、角度間隔 22°）；沒有 Wi-Fi：中間畫 4 根訊號條（有訊號為由低到高 4 格，沒有 SIM／`NoService` 為 4 根等高暗色平條），世代文字（4G／5G）放在環下方缺口。沒讀到狀態時轉圈圈。鏡像視窗的側邊欄用 38、底部橫條用 40（`Resize` 換版面時改尺寸），裝置清單 40、總覽 52。
 - `AppCell`：App 圖示格（圖示、名稱、執行中小圓點／最上層的短線），`Refresh` 原地更新。
 - `ArrowScroll`：捲動區，放不下時在可捲動的那一端出現小箭頭，按下去捲動一頁（對應 `ArrowScroll.swift`）。
 - `SegmentedBar`：分頁列（整條膠囊，選中的項目有較亮的膠囊底）。

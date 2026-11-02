@@ -28,6 +28,8 @@ public sealed record DeviceStatus
     public bool HasSim { get; set; }
     public int SignalBars { get; set; }           // 0..4
     public bool InService { get; set; }
+    /// <summary>真正的沒有服務：有 SIM，但連緊急通話都不行（沒有訊號或無線電關閉，如飛航模式）；僅限緊急通話不算</summary>
+    public bool NoService { get; set; }
     public int WifiLevel { get; set; }            // 0..4
     public bool AutoRotate { get; set; } = true;
     public int UserRotation { get; set; }         // 0..3
@@ -80,7 +82,14 @@ public sealed record DeviceStatus
 
     public static async Task<DeviceStatus?> FetchAsync(AdbClient c)
     {
-        try { return Parse(await c.ShellAsync(Script, 10)); } catch { return null; }
+        try
+        {
+            var text = await c.ShellAsync(Script, 10);
+            // adb 剛重連或 dumpsys 暫時沒輸出時會拿到空字串／殘缺輸出，解析出來是全空的狀態；
+            // 沒有電池資料（每台手機都有）就當作讀取失敗，保留上一筆資料或繼續轉圈圈，不要顯示成「無 SIM」
+            return text.Contains("level:") ? Parse(text) : null;
+        }
+        catch { return null; }
     }
 
     private static int? ToInt(string s) => int.TryParse(s.Trim(), out var v) ? v : null;
@@ -196,7 +205,7 @@ public sealed record DeviceStatus
         if (primary >= 0)
         {
             var p = parsed[primary];
-            s.InService = p.InService; s.RadioTech = p.Tech; s.Carrier = p.Carrier; s.SignalDbm = p.Dbm; s.SignalBars = p.Bars;
+            s.InService = p.InService; s.NoService = !p.InService && !p.EmergencyOnly; s.RadioTech = p.Tech; s.Carrier = p.Carrier; s.SignalDbm = p.Dbm; s.SignalBars = p.Bars;
         }
         return s;
     }
@@ -259,10 +268,15 @@ public sealed record DeviceStatus
                 var num = new string(sig[(k + key.Length)..].TakeWhile(ch => ch == '-' || char.IsDigit(ch)).ToArray());
                 if (int.TryParse(num, out var n) && n < 0 && n > -200) { p.Dbm = n; break; }
             }
-            // 三星的狀態列用 SignalBarInfo 的格數（例如 lteLevel=4），沒有才用標準的 level=
+            // 三星的狀態列用 SignalBarInfo 的格數（例如 lteLevel=4），是 5 格制（0..5，4 就是 4/5 格），
+            // 換算成我們的 4 格（四捨五入）；沒有才用標準的 level=（0..4）
             int sb = sig.IndexOf("SignalBarInfo{", StringComparison.Ordinal);
             int lv = sb >= 0 ? sig.IndexOf("Level=", sb, StringComparison.Ordinal) : -1;
-            if (lv >= 0) p.Bars = Math.Min(4, int.TryParse(new string(sig[(lv + 6)..].TakeWhile(char.IsDigit).ToArray()), out var b) ? b : 0);
+            if (lv >= 0)
+            {
+                int level = Math.Min(5, int.TryParse(new string(sig[(lv + 6)..].TakeWhile(char.IsDigit).ToArray()), out var b) ? b : 0);
+                p.Bars = (int)Math.Round(level * 4 / 5.0, MidpointRounding.AwayFromZero);
+            }
             else
             {
                 int l2 = sig.IndexOf("level=", StringComparison.Ordinal);

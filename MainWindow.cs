@@ -243,7 +243,7 @@ public sealed class MainWindow : Window
         FrameworkElement right;
         if (d.IsOnline)
         {
-            var ind = new StatusIndicator(30);
+            var ind = new StatusIndicator(40);
             ind.Set(DeviceStatusStore.Shared.StatusFor(d));
             right = ind;
         }

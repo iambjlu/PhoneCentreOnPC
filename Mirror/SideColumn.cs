@@ -22,7 +22,7 @@ internal sealed class SideColumn : UserControl
     private readonly MirrorModel _m;
     private readonly MirrorWindow _w;
     private bool _horizontal;
-    private readonly StatusIndicator _indicator = new(38);
+    private readonly StatusIndicator _indicator = new(38, mirror: true);
 
     // 垂直版面的各塊（用來量測與分配空間）
     private readonly Grid _area = new();
@@ -74,6 +74,7 @@ internal sealed class SideColumn : UserControl
         var root = new Grid { Padding = new Thickness(8, 10, 8, 8), RowSpacing = 8 };
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        _indicator.Resize(38);
         _indicator.HorizontalAlignment = HorizontalAlignment.Center; _indicator.Margin = new Thickness(0, 0, 0, 2);
         root.Children.Add(_indicator);
 
@@ -152,6 +153,7 @@ internal sealed class SideColumn : UserControl
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        _indicator.Resize(40);
         _indicator.HorizontalAlignment = HorizontalAlignment.Left; _indicator.Margin = new Thickness(0);
         _indicator.VerticalAlignment = VerticalAlignment.Center;
         grid.Children.Add(_indicator);

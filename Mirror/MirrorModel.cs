@@ -87,6 +87,8 @@ public sealed class MirrorModel
     private int _emptyChecks, _changeToken;
     private DateTime _lastSnapshotRequest = DateTime.MinValue;
     private string? _pendingStatus;
+    /// <summary>手機端音訊擷取失敗過；之後的重連都不再要求音訊</summary>
+    private bool _audioCaptureFailed;
     private CancellationTokenSource? _retry;
     private readonly List<DispatcherQueueTimer> _timers = [];
     private readonly DispatcherQueue _ui = DispatcherQueue.GetForCurrentThread();
@@ -131,7 +133,7 @@ public sealed class MirrorModel
         {
             Video = VideoOptions,
             // 同一台手機只讓主鏡像視窗傳音訊，避免重複
-            Audio = s.AudioEnabled && !IsVirtualDisplay,
+            Audio = s.AudioEnabled && !IsVirtualDisplay && !_audioCaptureFailed,
             MuteDevice = s.MuteDeviceWhenForwarding,
             ClipboardSync = s.ClipboardSync,
             ScreenOff = ScreenOff,
@@ -472,6 +474,14 @@ public sealed class MirrorModel
                 if (IsVirtualDisplay) _ = FinishConnectAsync();
                 break;
             case ScrcpySession.StateKind.Failed:
+                // 手機端無法建立 AudioRecord（權限、被其他 App 佔用等）：這次連線改成不轉送聲音，立刻重連
+                if (!_audioCaptureFailed && st.Message is { } fm && (fm.Contains("Audio recording error") || fm.Contains("AudioRecord")))
+                {
+                    _audioCaptureFailed = true;
+                    _pendingStatus = "手機無法擷取聲音，已改為不轉送聲音";
+                    Start();
+                    return;
+                }
                 StatusText = $"連線中斷：{st.Message}"; Raise();
                 ScheduleRetry();
                 break;
