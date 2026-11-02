@@ -81,6 +81,7 @@ public sealed class OverviewPage : UserControl
         {
             _catalog = DeviceManager.Shared.Catalog(d);
             _catalog.Changed += RenderStrip;
+            RenderStrip();   // 建構時還沒有目錄；啟動台已載入過時目錄不會再發出 Changed，不主動畫的話喜好項目與已開啟會一直是空的
             _ = LoadCatalogAsync();
         }
         var q = DispatcherQueue.GetForCurrentThread();
@@ -106,6 +107,7 @@ public sealed class OverviewPage : UserControl
         if (_catalog is null) return;
         if (_catalog.Apps.Count == 0) await _catalog.ReloadAsync();
         await _catalog.RefreshTasksAsync();
+        RenderStrip();
     }
 
     private void OnDevices() { RenderHeader(); RenderInfo(); }
