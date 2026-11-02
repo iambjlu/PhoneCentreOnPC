@@ -3,7 +3,7 @@
 ### PC版目前是測試階段，可能有很多bug ><
 ### 如果你有Mac，推薦優先使用Mac版 [PhoneCentre](../PhoneCentre)
 
-在 Windows PC 上管理 Android 手機的原生 App（WinUI 3、C#／.NET 10），是 [PhoneCentre](../PhoneCentre)（macOS 版）的 Windows 版。
+在 Windows PC 上管理 Android 手機的原生 App（WinUI 3、C#／.NET 10），是 [PhoneCentre](https://github.com/iambjlu/PhoneCentre)（macOS 版）的 Windows 版。
 透過 adb 連接手機，用 scrcpy-server 鏡像畫面與遠端操作；另外提供 App 啟動台、檔案管理、相機膠卷、
 通知／簡訊／通話記錄，以及讓手機上的 App 以 PC 獨立視窗執行。
 
