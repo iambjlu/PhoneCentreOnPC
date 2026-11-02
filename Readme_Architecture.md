@@ -92,6 +92,7 @@ scrcpy 3.3.4 控制協定編碼（big-endian），與 Mac 版 Swift 逐位元組
 
 ### DeviceManager.cs
 對應 `DeviceManager.swift`：每 2 秒輪詢 `host:devices-l`（`DispatcherQueueTimer`，所有成員只在 UI 執行緒存取）、adb server 掛了自動 `start-server`、連線後抓 `DeviceInfo`、每台裝置一個 `AppCatalog`。找不到 adb 時狀態是 `MissingAdb`。無線裝置記住與自動重連、遠端 PhoneCentre 尚未移植。
+- 裝置資訊（名稱、廠牌、型號、解析度）連上線後抓一次並快取；裝置離線或從清單消失時清掉快取，重新連線再抓，手機改名後重連才會顯示新名字。
 
 ### DeviceStatus.cs
 對應 `DeviceStatus.swift`：一次 shell 取得電池（狀態碼區分充電中／已插電未充電；充電中總覽會附上目前充電功率，例如「充電中 12.5W」＝`current_now` × `voltage_now`，電流單位各家不同（標準 µA、三星 mA），絕對值 ≥ 20000 當 µA，不到 0.1W 不顯示，欄位 `ChargingWatts`）、預設網路（Wi-Fi 或 MOBILE[LTE]→4G/5G）、telephony.registry 的每個卡槽（電信、世代、dBm、三星 SignalBarInfo 格數、緊急通話、無線電關閉）、Wi-Fi RSSI／SSID／IP、電池循環與容量、生產日期、旋轉設定。三星 SignalBarInfo 是 5 格制，換算成 4 格（四捨五入）；`NoService`＝有 SIM 但連緊急通話都不行（沒有訊號或飛航模式），僅限緊急通話不算；輸出沒有 `level:`（電池資料，每台手機都有）視為讀取失敗，保留上一筆資料或繼續轉圈圈，不要顯示成「無 SIM」。`DeviceStatusStore` 每 10 秒更新所有在線裝置。

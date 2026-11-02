@@ -97,6 +97,9 @@ public sealed class DeviceManager
             }
         }
 
+        // 離線（或從清單消失）的裝置丟掉快取的名稱與型號，重新連線時再抓一次；否則手機改名後重連，名字會一直是這次執行第一次抓到的舊名字
+        var onlineIds = all.Where(d => d.IsOnline).Select(d => d.Id).ToHashSet();
+        foreach (var id in _infoCache.Keys.Where(id => !onlineIds.Contains(id)).ToList()) _infoCache.Remove(id);
         foreach (var d in all) d.Info = _infoCache.GetValueOrDefault(d.Id);
         bool changed = before != ServerStatus || !SameList(all, _devices);
         if (changed) { _devices = all; CacheManager.Shared.DevicesChanged(all); }
